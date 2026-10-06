@@ -80,7 +80,7 @@ OM-84's ten rhythms, which can play the bass and chord in time.</p>
   <img src="img/screen-chord.png" width="240" height="240" alt="OMNI's screen: A minor held">
   <img src="img/screen-rhythm.png" width="240" height="240" alt="OMNI's rhythm page: the Rock 1 pattern">
 </div>
-<div class="status"><strong>Version __VERSION__.</strong> New, and so far played on one FM-1. It installs and
+<div class="status"><strong>Version __VERSION__.</strong> Played and working on the FM-1. It installs and
 uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own firmware back. Installing is at your own risk.</div>
 <nav class="ways" aria-label="Get OMNI">
   <a href="emu/"><strong>Try it in the browser</strong><span>The same code the FM-1 runs, with sound. Drag across the white keys to strum; no FM-1 needed.</span></a>
