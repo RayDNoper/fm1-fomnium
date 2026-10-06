@@ -7,6 +7,15 @@ rhythms, which can play the bass and chord in time (auto bass sync).
 
 It is meant to be simple: one screen, four knobs a page, no patterns to program.
 
+![OMNI's screen: a C chord strummed](docs/img/screen-strum.png) ![A minor held](docs/img/screen-chord.png) ![The rhythm page](docs/img/screen-rhythm.png)
+
+- **Try it in your browser** (no FM-1 needed): <https://charlesvestal.github.io/fm1-omnichord/emu/>
+- **Install it** (Chrome or Edge, with the FM-1 plugged in): <https://charlesvestal.github.io/fm1-omnichord/install/>
+- **Download the firmware file**: [releases](https://github.com/charlesvestal/fm1-omnichord/releases)
+
+Installing is at your own risk, though it's hard to get stuck: the web installer can put M-VAVE's
+firmware back, and an FM-1 that keeps crashing starts in a safe mode.
+
 ## Playing
 
 | | |
