@@ -63,11 +63,15 @@ td:first-child { font-weight: 600; white-space: nowrap; color: var(--teal); }
 p.small { color: var(--muted); font-size: .9rem; }
 a { color: var(--accent); }
 code { font-size: .9em; }
+.video { position: relative; aspect-ratio: 16 / 9; max-width: 100%; margin: 0 0 1.4rem; border-radius: 14px; overflow: hidden; background: #000; }
+.video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 </style>
 </head>
 <body>
 <main>
 <h1>OMNI</h1>
+<div class="video"><iframe src="https://www.youtube-nocookie.com/embed/pahaM6nzucE" title="OMNI running on the FM-1"
+  allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
 <p class="lede">A chord harp for the M-VAVE FM-1, after the Suzuki Omnichord. Pick a chord on the black
 keys, run a finger across the white keys, and it rings out. Behind it are an organ-like chord, a bass, and the
 OM-84's ten rhythms, which can play the bass and chord in time.</p>

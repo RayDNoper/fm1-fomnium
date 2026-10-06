@@ -7,6 +7,8 @@ rhythms, which can play the bass and chord in time (auto bass sync).
 
 It is meant to be simple: one screen, four knobs a page, no patterns to program.
 
+[![OMNI running on the FM-1 (watch on YouTube)](https://img.youtube.com/vi/pahaM6nzucE/maxresdefault.jpg)](https://www.youtube.com/watch?v=pahaM6nzucE)
+
 ![OMNI's screen: a C chord strummed](docs/img/screen-strum.png) ![A minor held](docs/img/screen-chord.png) ![The rhythm page](docs/img/screen-rhythm.png)
 
 - **Try it in your browser** (no FM-1 needed): <https://charlesvestal.github.io/fm1-omnichord/emu/>
