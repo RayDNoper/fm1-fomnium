@@ -43,7 +43,7 @@ else
 fi
 run host-build sh host/build_host.sh
 if command -v emcc >/dev/null 2>&1; then
-    run emu sh web/emu/build.sh
+    run emu sh -c "sh web/emu/build.sh >/dev/null && node tests/host/emu_test.mjs build/emu/omni.wasm"
 fi
 for s in tests/scenarios/*.omni; do
     n=$(basename "$s" .omni)

@@ -70,7 +70,7 @@ void om_midi_out(uint32_t st, uint32_t d1, uint32_t d2);
 
 /* state for the screen (UI) */
 extern volatile float om_str_level[OM_NSTR];   /* each string's envelope, 0..1 */
-extern volatile uint8_t om_str_note[OM_NSTR];  /* the note each string plays now (MIDI) */
+extern volatile uint8_t om_str_note[OM_NSTR];  /* the note each string plucks, for the chord now (MIDI) */
 extern volatile float om_chord_level, om_bass_level;
 extern volatile uint8_t om_playing, om_step, om_steps;
 extern volatile uint8_t om_drum_hit;           /* bits: drums hit since the UI last cleared it */

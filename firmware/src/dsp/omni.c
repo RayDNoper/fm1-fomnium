@@ -111,7 +111,7 @@ void om_panic(void) { post(C_PANIC, 0, 0); }
 
 /* -------------------------------------------------------------- state --- */
 volatile float om_str_level[OM_NSTR];
-volatile uint8_t om_str_note[OM_NSTR];
+volatile uint8_t om_str_note[OM_NSTR];        /* the note a pluck plays now */
 volatile float om_chord_level, om_bass_level;
 volatile uint8_t om_playing, om_step, om_steps = 32;
 volatile uint8_t om_drum_hit;
@@ -188,7 +188,6 @@ static void strum(int s)
         v->modamt = 1.0f - (float)i / 17.0f;
         v->shim_off = (uint16_t)(((i & 1) ? 27 * i : 14 * i) % 360);
     }
-    om_str_note[s] = (uint8_t)n;
 }
 
 /* ---- chord and bass */
@@ -247,6 +246,8 @@ static void retune(void)
 {
     int i;
     om_voicing(root, type, par[P_TRANSPOSE], par[P_OCTAVE], harp_n, chord_n, &bass_n);
+    for (i = 0; i < OM_NSTR; i++)                 /* what each string plays when plucked next */
+        om_str_note[i] = harp_n[i];
     for (i = 0; i < OM_NCHORD; i++)
         if (chv[i].st != E_OFF && chv[i].note != chord_n[i]) {
             midi(0x81, chv[i].note, 0);
@@ -427,8 +428,6 @@ void om_init(void)
     for (i = 0; i < P_NPARAMS; i++)
         apply(i, PARAMS[i].def);
     retune();
-    for (i = 0; i < OM_NSTR; i++)
-        om_str_note[i] = harp_n[i];
 }
 
 static void drain(void)
