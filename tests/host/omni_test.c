@@ -131,6 +131,27 @@ int main(void)
         check("all at full: below full scale (the soft clip)", peak < 1.0f && peak > 0.3f);
         printf("  (peak %.2f)\n", (double)peak);
     }
+    {   /* the plate: a tail that ends at the longest Space, and stays finite at full send */
+        int b, i;
+        double e0 = 0.0, e = 0.0;
+        om_play(0);
+        om_gate(0);
+        run(1);                                        /* (om_init empties the queue) */
+        om_init();
+        om_set(P_REVERB, 100);
+        om_set(P_SPACE, 100);
+        om_set(P_SUSTAIN, 0);
+        om_strum(8);
+        for (b = 0; b < 44100 * 20 / 256; b++) {
+            om_render(buf, 256, 4096);
+            e = 0.0;
+            for (i = 0; i < 512; i++)
+                e += (double)buf[i] * (double)buf[i];
+            if (b == 60)
+                e0 = e;
+        }
+        check("plate at Space 100: the tail is 60 dB down within 20 s", e < e0 * 1e-6);
+    }
     check("MIDI out sent notes", midi_n > 100);
     om_set(P_MIDI, 0);
     run(1);

@@ -27,8 +27,12 @@ void project_defaults(void)
 static int project_valid(void)
 {
     int i;
-    if (proj.magic != PROJ_MAGIC || proj.format != PROJ_FORMAT)
+    if (proj.magic != PROJ_MAGIC || (proj.format != PROJ_FORMAT && proj.format != 1u))
         return 0;
+    if (proj.format == 1u) {                     /* 0.1: that slot was Lo-fi (0 / 1) */
+        proj.par[P_CREV] = om_param_info(P_CREV)->def;
+        proj.format = PROJ_FORMAT;
+    }
     for (i = 0; i < P_NPARAMS; i++) {
         const om_param_t *p = om_param_info(i);
         if (proj.par[i] < p->lo || proj.par[i] > p->hi)

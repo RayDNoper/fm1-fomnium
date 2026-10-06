@@ -40,7 +40,7 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 
 - **HOME: Play.** Voice 1, Voice 2, Sustain, Chord level.
 - **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
-- **FX: Sound.** Reverb, Space, Width, Lo-fi.
+- **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
 - **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). KNOB 3 and 4 are Transpose and Octave.
 - **GLO: Setup.** Tune, MIDI out, Key lights.
 

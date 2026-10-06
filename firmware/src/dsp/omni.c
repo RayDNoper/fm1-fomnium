@@ -23,7 +23,7 @@ const int8_t OM_TYPE_TONES[CH_NTYPES][3] = {
 static const om_param_t PARAMS[P_NPARAMS] = {
     {"Voice 1", 0, 100, 80}, {"Voice 2", 0, 100, 45}, {"Sustain", 0, 100, 50}, {"Chord", 0, 100, 60},
     {"Rhythm", 0, OM_NRHYTHM - 1, 0}, {"Tempo", 60, 240, 116}, {"Drums", 0, 100, 70}, {"Auto bass", 0, 1, 1},
-    {"Reverb", 0, 100, 30}, {"Space", 0, 100, 55}, {"Tune", -50, 50, 0}, {"Lo-fi", 0, 1, 1},
+    {"Reverb", 0, 100, 30}, {"Space", 0, 100, 55}, {"Tune", -50, 50, 0}, {"Chord rev", 0, 100, 25},
     {"Transpose", -6, 6, 0}, {"Octave", -1, 1, 0}, {"Width", 0, 100, 60}, {"MIDI out", 0, 1, 1},
 };
 
@@ -54,7 +54,7 @@ void om_param_text(int i, int v, char *b)
     const char *s = 0;
     if (i == P_RHYTHM)
         s = OM_RHYTHM[v < 0 ? 0 : v % OM_NRHYTHM].name;
-    else if (i == P_ABC || i == P_LOFI || i == P_MIDI)
+    else if (i == P_ABC || i == P_MIDI)
         s = ONOFF[v ? 1 : 0];
     if (s) {
         int k = 0;
@@ -117,7 +117,7 @@ volatile uint8_t om_playing, om_step, om_steps = 32;
 volatile uint8_t om_drum_hit;
 
 static int16_t par[P_NPARAMS];
-static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, rfb, sus_rate;
+static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate;
 static float pan_l[OM_NSTR], pan_r[OM_NSTR];
 static int root, type;
 static uint8_t harp_n[OM_NSTR], chord_n[OM_NCHORD], bass_n;
@@ -305,43 +305,101 @@ static void do_step(void)
     }
 }
 
-/* ---- reverb: four delay lines, a Householder matrix, damped; two diffusers in front */
-#define RV_N0 1153
-#define RV_N1 1361
-#define RV_N2 1597
-#define RV_N3 1823
-#define AP_N0 225
-#define AP_N1 341
-static float rv_buf[RV_N0 + RV_N1 + RV_N2 + RV_N3 + AP_N0 + AP_N1] OM_POOL;
-static float *rv_line[4], *ap_line[2];
-static const int RV_LEN[4] = {RV_N0, RV_N1, RV_N2, RV_N3}, AP_LEN[2] = {AP_N0, AP_N1};
-static int rv_i[4], ap_i[2];
-static float rv_lp[4];
+/* ---- reverb: Dattorro's plate (J. Dattorro, "Effect Design, Part 1", JAES 1997): a predelay, four
+ * input diffusers, then a figure-eight tank of two halves, each a modulated allpass, a delay, a damping
+ * lowpass, an allpass and a delay, feeding the other half. Stereo out from seven taps a side. The
+ * paper's lengths are for 29761 Hz; DS() scales them to 44.1 kHz. */
+#define DS(n) (((n) * 14818 + 5000) / 10000)          /* 44100 / 29761 */
+#define PRE_N 442                                    /* 10 ms */
+#define EXC DS(16)                                   /* the tank allpasses' modulation, samples */
+enum { L_PRE, L_IN1, L_IN2, L_IN3, L_IN4, L_APL, L_D1L, L_AP2L, L_D2L, L_APR, L_D1R, L_AP2R, L_D2R, L_N };
+static const int DL_LEN[L_N] = {PRE_N, DS(142), DS(107), DS(379), DS(277), DS(672) + EXC + 2, DS(4453), DS(1800),
+                                DS(3720), DS(908) + EXC + 2, DS(4217), DS(2656), DS(3163)};
+#define DL_TOTAL (PRE_N + DS(142) + DS(107) + DS(379) + DS(277) + DS(672) + DS(4453) + DS(1800) + DS(3720) + DS(908) + \
+                  DS(4217) + DS(2656) + DS(3163) + 2 * (EXC + 2))
+static float pl_buf[DL_TOTAL] OM_POOL;
+typedef struct {
+    float *b;
+    int n, i;
+} dl_t;
+static dl_t dl[L_N];
+static float pl_bw, pl_damp_l, pl_damp_r, pl_decay = 0.5f, pl_dd2 = 0.5f, lfo_s, lfo_c = 1.0f;
+
+static inline float tap(const dl_t *d, int k)          /* the value written k samples ago, 1..n */
+{
+    int j = d->i - k;
+    return d->b[j < 0 ? j + d->n : j];
+}
+static inline void push(dl_t *d, float x)
+{
+    d->b[d->i] = x;
+    if (++d->i >= d->n)
+        d->i = 0;
+}
+static inline float allpass(dl_t *d, int len, float x, float g)
+{
+    float z = tap(d, len), v = x - g * z;
+    push(d, fm_flush(v));
+    return z + g * v;
+}
+static inline float allpass_mod(dl_t *d, float len, float x, float g)   /* a fractional, moving length */
+{
+    int k = (int)len;
+    float f = len - (float)k, z = tap(d, k) + (tap(d, k + 1) - tap(d, k)) * f, v = x - g * z;
+    push(d, fm_flush(v));
+    return z + g * v;
+}
 
 static inline void reverb(float in, float *ol, float *or_)
 {
-    float d[4], s, x = in;
-    int k;
-    for (k = 0; k < 2; k++) {                     /* allpass diffusers, g 0.6 */
-        float *b = ap_line[k], y = b[ap_i[k]], w = x + 0.6f * y;
-        b[ap_i[k]] = w;
-        x = y - 0.6f * w;
-        if (++ap_i[k] >= AP_LEN[k])
-            ap_i[k] = 0;
+    float x, a, b, fb_l = tap(&dl[L_D2R], DS(3163)), fb_r = tap(&dl[L_D2L], DS(3720));
+    push(&dl[L_PRE], in);
+    x = tap(&dl[L_PRE], PRE_N);
+    pl_bw += 0.7f * (x - pl_bw);                     /* input bandwidth */
+    x = allpass(&dl[L_IN1], DS(142), pl_bw, 0.75f);
+    x = allpass(&dl[L_IN2], DS(107), x, 0.75f);
+    x = allpass(&dl[L_IN3], DS(379), x, 0.625f);
+    x = allpass(&dl[L_IN4], DS(277), x, 0.625f);
+    {   /* the modulation: ~0.9 Hz, sine and cosine for the two halves */
+        float s = lfo_s + 0.000128f * lfo_c, c = lfo_c - 0.000128f * s;
+        lfo_s = s;
+        lfo_c = c;
     }
-    for (k = 0; k < 4; k++) {
-        d[k] = rv_line[k][rv_i[k]];
-        rv_lp[k] += 0.45f * (d[k] - rv_lp[k]);    /* high frequencies die first */
-        d[k] = rv_lp[k];
+    a = allpass_mod(&dl[L_APL], (float)DS(672) + (float)EXC * lfo_s, x + pl_decay * fb_l, -0.7f);
+    push(&dl[L_D1L], a);
+    b = tap(&dl[L_D1L], DS(4453));
+    pl_damp_l += 0.62f * (b - pl_damp_l);
+    b = allpass(&dl[L_AP2L], DS(1800), pl_damp_l * pl_decay, pl_dd2);
+    push(&dl[L_D2L], b);
+    a = allpass_mod(&dl[L_APR], (float)DS(908) + (float)EXC * lfo_c, x + pl_decay * fb_r, -0.7f);
+    push(&dl[L_D1R], a);
+    b = tap(&dl[L_D1R], DS(4217));
+    pl_damp_r += 0.62f * (b - pl_damp_r);
+    b = allpass(&dl[L_AP2R], DS(2656), pl_damp_r * pl_decay, pl_dd2);
+    push(&dl[L_D2R], b);
+    *ol = 0.6f * (tap(&dl[L_D1R], DS(266)) + tap(&dl[L_D1R], DS(2974)) - tap(&dl[L_AP2R], DS(1913)) +
+                  tap(&dl[L_D2R], DS(1996)) - tap(&dl[L_D1L], DS(1990)) - tap(&dl[L_AP2L], DS(187)) -
+                  tap(&dl[L_D2L], DS(1066)));
+    *or_ = 0.6f * (tap(&dl[L_D1L], DS(353)) + tap(&dl[L_D1L], DS(3627)) - tap(&dl[L_AP2L], DS(1228)) +
+                   tap(&dl[L_D2L], DS(2673)) - tap(&dl[L_D1R], DS(2111)) - tap(&dl[L_AP2R], DS(335)) -
+                   tap(&dl[L_D2R], DS(121)));
+}
+
+static void plate_init(void)
+{
+    float *p = pl_buf;
+    int k, i;
+    for (k = 0; k < L_N; k++) {
+        dl[k].b = p;
+        dl[k].n = DL_LEN[k];
+        dl[k].i = 0;
+        p += DL_LEN[k];
     }
-    s = 0.5f * (d[0] + d[1] + d[2] + d[3]);
-    for (k = 0; k < 4; k++) {
-        rv_line[k][rv_i[k]] = fm_flush((d[k] - s) * rfb + x);
-        if (++rv_i[k] >= RV_LEN[k])
-            rv_i[k] = 0;
-    }
-    *ol = d[0] + d[2];
-    *or_ = d[1] + d[3];
+    for (i = 0; i < DL_TOTAL; i++)
+        pl_buf[i] = 0.0f;
+    pl_bw = pl_damp_l = pl_damp_r = 0.0f;
+    lfo_s = 0.0f;
+    lfo_c = 1.0f;
 }
 
 /* ---- parameters */
@@ -361,7 +419,11 @@ static void apply(int p, int v)
     case P_CHORD: cvol = (float)v * 0.01f; break;
     case P_RHYVOL: rvol = (float)v * 0.01f; break;
     case P_REVERB: rsend = (float)v * 0.01f * (float)v * 0.01f; break;
-    case P_SPACE: rfb = 0.62f + 0.3f * (float)v * 0.01f; break;
+    case P_CREV: csend = (float)v * 0.01f * (float)v * 0.01f; break;
+    case P_SPACE:                                 /* the plate's decay: a small room to a long hall */
+        pl_decay = 0.35f + 0.55f * (float)v * 0.01f;
+        pl_dd2 = fm_clampf(pl_decay + 0.15f, 0.25f, 0.5f);
+        break;
     case P_TEMPO: tempo_set(); break;
     case P_RHYTHM:
         rh_next = v;
@@ -407,21 +469,11 @@ static void quiet(void)
 void om_init(void)
 {
     int i;
-    float *b = rv_buf;
     for (i = 0; i < 360; i++) {
         float s = fm_sinf((float)(i + 125) * (FM_PI / 180.0f));
         sin3[i] = s == 0.0f ? 0.0f : (s > 0.0f ? 1.0f : -1.0f) * fm_powf(fm_fabsf(s), 0.6f);
     }
-    for (i = 0; i < 4; i++) {
-        rv_line[i] = b;
-        b += RV_LEN[i];
-    }
-    for (i = 0; i < 2; i++) {
-        ap_line[i] = b;
-        b += AP_LEN[i];
-    }
-    for (i = 0; i < (int)(sizeof rv_buf / sizeof rv_buf[0]); i++)
-        rv_buf[i] = 0.0f;
+    plate_init();
     q_r = q_w = 0;
     root = 0;
     type = CH_MAJ;
@@ -490,7 +542,7 @@ static float mixl[BLK], mixr[BLK], send[BLK];
 
 static void render_strings(uint32_t n)
 {
-    const float lofi = par[P_LOFI] ? 64.0f : 0.0f, g1 = v1 * (1.0f - 0.5f * v2) * 1.2f,
+    const float g1 = v1 * (1.0f - 0.5f * v2) * 1.2f,
                 g2 = v2 * (1.0f - 0.5f * v1) * 0.85f * 1.2f;
     int s;
     for (s = 0; s < OM_NSTR; s++) {
@@ -514,15 +566,11 @@ static void render_strings(uint32_t n)
             x2 = wave(OM_WAVE_HARP, pos);
             y1 += c * (x1 - y1);
             y2 += c * (x2 - y2);
-            if (lofi != 0.0f) {                     /* Chordian's 6-bit voice (the state too) */
-                y1 = (float)(int)(y1 * lofi) * (1.0f / 64.0f);
-                y2 = (float)(int)(y2 * lofi) * (1.0f / 64.0f);
-            }
             g += 0.05f * (e - g);
             o = (y1 * g1 + y2 * g2) * g;
             mixl[j] += o * gl;
             mixr[j] += o * gr;
-            send[j] += o;
+            send[j] += o * rsend;
             pos = adv(pos, inc);
             e -= sus_rate * (0.34f + 8.5f * e * e * e);
             if (e <= 0.0f) {
@@ -600,7 +648,7 @@ static void render_chord(uint32_t n)
             o = wave(OM_WAVE_CHORD, v->pos) * v->g * gc;
             mixl[j] += o;
             mixr[j] += o;
-            send[j] += 0.5f * o;
+            send[j] += o * csend;
             v->pos = adv(v->pos, v->inc);
         }
         lvl = fm_maxf(lvl, v->v);
@@ -614,6 +662,7 @@ static void render_chord(uint32_t n)
             o = (wave(OM_WAVE_BASS_BASE, v->pos) + wave(OM_WAVE_BASS_MOD, v->pos) * (1.0f - e * e)) * v->g * gb;
             mixl[j] += o;
             mixr[j] += o;
+            send[j] += o * csend * 0.5f;               /* a little: a wet bass muddies */
             v->pos = adv(v->pos, v->inc);
         }
     }
@@ -654,7 +703,7 @@ static void render_chunk(int32_t *out, uint32_t n, float gain)
     render_drums(n);
     for (j = 0; j < n; j++) {
         float wl, wr, l, r;
-        reverb(send[j] * rsend * 0.35f, &wl, &wr);
+        reverb(send[j] * 0.5f, &wl, &wr);
         l = (mixl[j] + wl) * 0.42f * gain;
         r = (mixr[j] + wr) * 0.42f * gain;
         out[2 * j] = (int32_t)(fm_tanhf(l) * 8300000.0f);

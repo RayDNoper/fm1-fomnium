@@ -85,3 +85,5 @@ expect padroot10 7
 expect par12 2
 expect sync 1
 shot after_reboot.png
+# Chord rev comes back at its default
+expect par11 25

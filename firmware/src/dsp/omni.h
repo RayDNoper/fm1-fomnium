@@ -32,7 +32,8 @@ extern const int8_t OM_TYPE_TONES[CH_NTYPES][3];
 enum {
     P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD,          /* harp voice levels, harp sustain, chord + bass level */
     P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC,               /* rhythm, BPM, rhythm level, auto bass sync */
-    P_REVERB, P_SPACE, P_TUNE, P_LOFI,                /* reverb send, reverb size, tune (cents), 6-bit voice */
+    P_REVERB, P_SPACE, P_TUNE, P_CREV,                /* the strings' reverb send, reverb size, tune (cents),
+                                                       * the chord and bass's reverb send (the drums are dry) */
     P_TRANSPOSE, P_OCTAVE, P_WIDTH, P_MIDI,           /* semitones, harp octave, stereo width, MIDI out */
     P_NPARAMS
 };
