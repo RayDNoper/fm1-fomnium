@@ -63,6 +63,9 @@ td:first-child { font-weight: 600; white-space: nowrap; color: var(--teal); }
 p.small { color: var(--muted); font-size: .9rem; }
 a { color: var(--accent); }
 code { font-size: .9em; }
+ul.pages { padding-left: 1.2rem; margin: 0 0 1rem; }
+ul.pages li { margin: 0 0 .4rem; }
+ul.pages b { color: var(--teal); }
 .video { position: relative; aspect-ratio: 16 / 9; max-width: 100%; margin: 0 0 1.4rem; border-radius: 14px; overflow: hidden; background: #000; }
 .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 </style>
@@ -96,9 +99,22 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
 <tr><td>PLAY · REC</td><td>The rhythm, on and off. REC is sync start: the rhythm waits for your first chord.</td></tr>
 <tr><td>ARP</td><td>Chord hold: the chord keeps going after you let go.</td></tr>
 <tr><td>OCT− · OCT+</td><td>Move the strum plate an octave.</td></tr>
-<tr><td>Encoders</td><td>SELECT tempo, ALGORITHM rhythm, PRESETS transpose. KNOB 1–4 the four values on the screen.</td></tr>
-<tr><td>Pages</td><td>HOME Play (voice 1, voice 2, sustain, chord), SEQ Rhythm, FX Sound (reverb, space, width, lo-fi), SEL Chords, GLO Setup (tune, MIDI out, key lights).</td></tr>
+<tr><td>SELECT</td><td>Tempo.</td></tr>
+<tr><td>ALGORITHM</td><td>Rhythm.</td></tr>
+<tr><td>PRESETS</td><td>Transpose (−6 to +6).</td></tr>
+<tr><td>KNOB 1–4</td><td>The four values on the screen (see the pages below).</td></tr>
+<tr><td>SAVE</td><td>Saves. OMNI also saves by itself a few seconds after a change, once it's quiet.</td></tr>
 </table>
+
+<h2>The pages</h2>
+<p>Each page puts four values on KNOB 1–4. EDIT steps through the pages.</p>
+<ul class="pages">
+  <li><b>HOME: Play.</b> Voice 1, Voice 2, Sustain, Chord level.</li>
+  <li><b>SEQ: Rhythm.</b> Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).</li>
+  <li><b>FX: Sound.</b> Reverb, Space, Width, Lo-fi.</li>
+  <li><b>SEL: Chords.</b> Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). KNOB 3 and 4 are Transpose and Octave.</li>
+  <li><b>GLO: Setup.</b> Tune, MIDI out, Key lights.</li>
+</ul>
 <p class="small">MIDI out: the strings on channel 1, the chord on 2, the bass on 3, the drums on 10. To go back to the official
 firmware, use the installer's "Back to the stock firmware", or M-VAVE's updater, M-UPGRADE, from
 <a href="https://www.m-vave.com/download">m-vave.com/download</a>. Omnichord is a trademark of Suzuki; M-VAVE and FM-1 are

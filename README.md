@@ -28,10 +28,21 @@ firmware back, and an FM-1 that keeps crashing starts in a safe mode.
 | REC | SYNC START: the rhythm waits for your first chord. |
 | ARP | CHORD HOLD: the chord keeps playing after you let go (press the same button again to stop it). |
 | OCT− / OCT+ | Move the strum plate an octave. |
-| SELECT / ALGORITHM / PRESETS | Tempo / rhythm / transpose (−6 to +6). |
-| KNOB 1–4 | The four values on the screen. |
-| HOME, SEQ, FX, SEL, GLO | The pages: Play (voice 1, voice 2, sustain, chord level), Rhythm (rhythm, tempo, drums, auto bass), Sound (reverb, space, width, lo-fi), Chords (change the chord on any button: press it, then turn Root and Type), Setup (tune, MIDI out, key lights). EDIT steps through them. |
+| SELECT | Tempo. |
+| ALGORITHM | Rhythm. |
+| PRESETS | Transpose (−6 to +6). |
+| KNOB 1–4 | The four values on the screen (see the pages below). |
 | SAVE | Saves. OMNI also saves by itself a few seconds after a change, once it's quiet. |
+
+### The pages
+
+Each page puts four values on KNOB 1–4. EDIT steps through the pages.
+
+- **HOME: Play.** Voice 1, Voice 2, Sustain, Chord level.
+- **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
+- **FX: Sound.** Reverb, Space, Width, Lo-fi.
+- **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). KNOB 3 and 4 are Transpose and Octave.
+- **GLO: Setup.** Tune, MIDI out, Key lights.
 
 **Voice 1** is the Omnichord's shimmering harp, and **Voice 2** is its plain one. Mix them, and
 set how long the strings ring with **Sustain**.
