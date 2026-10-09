@@ -12,6 +12,8 @@ class Omni extends AudioWorkletProcessor {
     this.input = null;
     this.sentBlits = -1;
     this.sentWrites = -1;
+    this.sxReplies = 0;
+    this.sxQueue = [];
     this.lastFrame = 0;
     this.busy = 0;
     this.frames = 0;
@@ -55,6 +57,8 @@ class Omni extends AudioWorkletProcessor {
       this.ex.web_enc(m.role, m.n | 0);
     } else if (m.type === "master") {
       this.ex.web_master(m.value | 0);
+    } else if (m.type === "sysex") {                  // from the editor: the bytes between F0 and F7
+      this.sxQueue.push(m.data);
     }
   }
 
@@ -84,11 +88,27 @@ class Omni extends AudioWorkletProcessor {
     this.port.postMessage(msg, transfer);
   }
 
+  // the editor's messages go in one at a time, as on the FM-1; a reply goes back to the page
+  sysex() {
+    const ex = this.ex;
+    const r = ex.web_sysex_replies();
+    if (r !== this.sxReplies) {
+      this.sxReplies = r;
+      this.port.postMessage({ type: "sysex", data: Array.from(new Uint8Array(this.mem.buffer, ex.web_sysex_out(), ex.web_sysex_out_len())) });
+    }
+    const d = this.sxQueue.shift();
+    if (d && d.length <= 640) {
+      new Uint8Array(this.mem.buffer, ex.web_sysex_in(), d.length).set(d);
+      ex.web_sysex_push(d.length);
+    }
+  }
+
   process(inputs, outputs) {
     if (!this.ex) return true;
     const out = outputs[0];
     const n = out[0].length;
     const t0 = clock();
+    this.sysex();
     this.ex.web_render(n);
     this.busy += clock() - t0;
     this.frames += n;

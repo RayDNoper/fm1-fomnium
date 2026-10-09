@@ -127,4 +127,5 @@ static void ota_commit(const uint8_t *parm)
 #include "app/plat_fm1.c"
 #include "app/project.c"
 #include "app/ui.c"
+#include "app/editor.c"
 #include "app/main_fm1.c"

@@ -14,6 +14,7 @@
  *   spin ENC N                   N detents at once, exactly N (no acceleration)
  *   master N                     MASTER pot 0..4096
  *   midi B0 B1 B2                incoming USB MIDI message (hex bytes)
+ *   sysex B0 B1 ...              incoming SysEx, the bytes between F0 and F7 (hex); expect sxlen / sxN: the reply
  *   wav FILE | wavstop           start / stop recording the output
  *   peakreset                    restart the output peak (expect peak_db_min / peak_db_max)
  *   shot FILE.png                save the screen
@@ -101,6 +102,26 @@ void plat_midi_out(uint32_t pkt)
     if (midi_log)
         fprintf(midi_log, "%u ms: %02X %02X %02X\n", now_ms, (pkt >> 8) & 0xFF, (pkt >> 16) & 0xFF, (pkt >> 24) & 0xFF);
 }
+/* SysEx: one frame in at a time (the script's, or the page's), and the last reply, both without F0 / F7 */
+static uint8_t sx_in[640], sx_reply[640];
+static uint32_t sx_in_len, sx_reply_len, sx_replies;
+static uint8_t sx_in_ready;
+int plat_sysex_get(const uint8_t **p, uint32_t *n)
+{
+    if (!sx_in_ready)
+        return 0;
+    *p = sx_in;
+    *n = sx_in_len;
+    return 1;
+}
+void plat_sysex_done(void) { sx_in_ready = 0; }
+int plat_sysex_send(const uint8_t *p, uint32_t n)
+{
+    sx_reply_len = n >= 2u && n - 2u <= sizeof sx_reply ? n - 2u : 0;
+    memcpy(sx_reply, p + 1, sx_reply_len);
+    sx_replies++;
+    return 0;
+}
 /* the engine's MIDI out, as the device's glue sends it (USB-MIDI packet, cable 0) */
 void om_midi_out(uint32_t st, uint32_t d1, uint32_t d2) { plat_midi_out(st >> 4 | st << 8 | d1 << 16 | d2 << 24); }
 
@@ -136,6 +157,7 @@ uint32_t plat_xruns(void) { return 0; }
 #include "../firmware/src/app/app.h"
 #include "../firmware/src/app/project.c"
 #include "../firmware/src/app/ui.c"
+#include "../firmware/src/app/editor.c"
 
 /* ---------------------------------------------------------- outputs --- */
 static void png_write(const char *path)
@@ -309,6 +331,8 @@ static void run_ms(uint32_t ms)
             }
             audio_due_ms += 256.0 * 1000.0 / 44100.0;
         }
+        ed_service();
+        plat_sysex_done();                            /* (on the device the updater takes what is left) */
         if (now_ms >= ui_due) {
             ui_due = now_ms + 16;
             ui_frame();
@@ -358,6 +382,14 @@ static int expect(const char *what, const char *val)
         got = proj.hold;
     else if (!strcmp(what, "sync"))
         got = proj.sync;
+    else if (!strcmp(what, "shift"))
+        got = proj.shift;
+    else if (!strcmp(what, "cvoice"))
+        got = proj.cvoice;
+    else if (!strcmp(what, "voice"))
+        got = proj.voice;
+    else if (!strcmp(what, "dark"))
+        got = proj.dark;
     else if (!strcmp(what, "plate"))
         got = proj.plate;
     else if (!strcmp(what, "set"))
@@ -380,6 +412,10 @@ static int expect(const char *what, const char *val)
         got = (int)(om_chord_level * 100.0f);
     else if (!strcmp(what, "bass_level"))
         got = (int)(om_bass_level * 100.0f);
+    else if (!strcmp(what, "sxlen"))              /* the last SysEx reply: its length, sxN: its byte N */
+        got = (int)sx_reply_len;
+    else if (!strncmp(what, "sx", 2))
+        got = (uint32_t)atoi(what + 2) < sx_reply_len ? sx_reply[atoi(what + 2)] : -1;
     else if (!strncmp(what, "par", 3))            /* parN: parameter N (omni.h P_*) */
         got = proj.par[atoi(what + 3)];
     else if (!strncmp(what, "padroot", 7))
@@ -502,7 +538,20 @@ int main(int argc, char **argv)
             accel_off = 0;
         } else if (!strcmp(cmd, "master"))
             master = (uint32_t)atoi(a);
-        else if (!strcmp(cmd, "midi")) {
+        else if (!strcmp(cmd, "sysex")) {           /* the bytes between F0 and F7, hex */
+            char *q = line + 5, *e;
+            sx_in_len = 0;
+            sx_reply_len = 0;
+            for (;;) {
+                unsigned long v = strtoul(q, &e, 16);
+                if (e == q || sx_in_len >= sizeof sx_in)
+                    break;
+                sx_in[sx_in_len++] = (uint8_t)v;
+                q = e;
+            }
+            sx_in_ready = 1;
+            run_ms(2);
+        } else if (!strcmp(cmd, "midi")) {
             uint32_t s = (uint32_t)strtoul(a, 0, 16), d1 = (uint32_t)strtoul(b, 0, 16), d2 = (uint32_t)strtoul(c, 0, 16);
             uint32_t cin = s >= 0xF0 ? 0x0F : s >> 4;
             min_q[mi_w++ % MQ] = cin | s << 8 | d1 << 16 | d2 << 24;

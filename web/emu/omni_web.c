@@ -62,6 +62,17 @@ __attribute__((used, visibility("default"))) uint32_t web_blits(void) { return b
 __attribute__((used, visibility("default"))) uint32_t web_now(void) { return now_ms; }
 __attribute__((used, visibility("default"))) uint32_t web_cpu(void) { return cpu_pct; }
 
+/* SysEx for the editor (app/editor.c): a frame in (the bytes between F0 and F7), and the last reply */
+__attribute__((used, visibility("default"))) uint8_t *web_sysex_in(void) { return sx_in; }
+__attribute__((used, visibility("default"))) void web_sysex_push(uint32_t n)
+{
+    sx_in_len = n > sizeof sx_in ? 0 : n;
+    sx_in_ready = 1;
+}
+__attribute__((used, visibility("default"))) uint8_t *web_sysex_out(void) { return sx_reply; }
+__attribute__((used, visibility("default"))) uint32_t web_sysex_out_len(void) { return sx_reply_len; }
+__attribute__((used, visibility("default"))) uint32_t web_sysex_replies(void) { return sx_replies; }
+
 /* saved objects: the page keeps them (localStorage) and gives them back before boot */
 __attribute__((used, visibility("default"))) uint8_t *web_store(uint32_t obj) { return obj < OBJ_NOBJ ? store[obj] : 0; }
 __attribute__((used, visibility("default"))) int web_store_len(uint32_t obj) { return obj < OBJ_NOBJ ? store_len[obj] : -1; }

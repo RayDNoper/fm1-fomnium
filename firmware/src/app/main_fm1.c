@@ -335,6 +335,7 @@ static void fm1_main(void)
                 enter_uboot("UBOOT");
             }
         }
+        ed_service();                               /* the editor's SysEx, before the updater takes the frame */
         ota_service();                              /* M-UPGRADE handshake (other SysEx is dropped) */
         if (usb.ota_req) {
             usb.ota_req = 0;

@@ -1,0 +1,47 @@
+# the editor link (app/editor.c, web/EDITOR_PROTOCOL.md): SysEx 7D 46 4F <cmd> ...
+wait 200
+# INFO: protocol 1, 8 sets, 11 buttons, 9 types, then the version
+sysex 7D 46 4F 01
+expect sx3 1
+expect sx4 1
+expect sx5 8
+expect sx6 11
+expect sx7 9
+# SETS: the set in use, then 8 x 11 x (root, type). Set 1: F C G ... ; set 2 is in G (button 1: G)
+sysex 7D 46 4F 03
+expect sxlen 181
+expect sx4 0
+expect sx5 5
+expect sx6 0
+expect sx7 0
+expect sx29 7
+# PAD: set 1, button 1 becomes D minor; the screen's chord follows when that button sounds
+key b1 down
+wait 20
+expect root 0
+sysex 7D 46 4F 04 00 01 02 01
+expect sxlen 8
+expect sx6 2
+expect padroot1 2
+expect padtype1 1
+expect root 2
+expect type 1
+expect dirty 1
+key b1 up
+# a value out of range: no reply, nothing written
+sysex 7D 46 4F 04 00 01 0C 01
+expect sxlen 0
+sysex 7D 46 4F 04 08 01 00 00
+expect sxlen 0
+expect padroot1 2
+# SET: the third set, as PRESETS would; STATE tells it, and its number changes with a chord
+sysex 7D 46 4F 05 02
+expect sx4 2
+expect set 2
+sysex 7D 46 4F 02
+expect sxlen 9
+expect sx4 2
+# another maker's SysEx: no reply
+sysex 00 59 11 00
+expect sxlen 0
+shot editor.png

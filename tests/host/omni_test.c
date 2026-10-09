@@ -60,10 +60,16 @@ int main(void)
     check("the plate as a scale: the white keys' own notes, F3..G5", h[0] == 53 && h[3] == 59 && h[4] == 60 && h[15] == 79);
     om_scale(2, 1, h);
     check("... transpose +2, octave +1: D major, an octave up", h[4] == 74 && h[3] == 73);
-    om_chord_scale(9, CH_MIN, 0, 0, h);
+    om_chord_scale(9, CH_MIN, 0, 0, 0, h);
     check("the chord's scale: A minor up from A3", h[0] == 57 && h[2] == 60 && h[7] == 69 && h[15] == 83);
-    om_chord_scale(7, CH_7, 0, 0, h);
+    om_chord_scale(7, CH_7, 0, 0, 0, h);
     check("... G7: Mixolydian, with its F", h[0] == 55 && h[6] == 65);
+    om_chord_scale(0, CH_MAJ, 0, 0, -2, h);
+    check("... moved two steps down: C major from A2, its C3 on the third key", h[0] == 45 && h[1] == 47 && h[2] == 48 && h[15] == 71);
+    om_chord_scale(0, CH_MAJ, 0, 0, 6, h);
+    check("... six steps up: from B3", h[0] == 59 && h[1] == 60 && h[15] == 84);
+    om_chord_scale(0, CH_MAJ, 0, -1, -6, h);
+    check("... six down, an octave down: from D2", h[0] == 26 && h[6] == 36);
     {
         int t, k, ok = 1;
         for (t = 0; t < CH_NTYPES; t++)

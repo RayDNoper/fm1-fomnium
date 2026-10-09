@@ -30,6 +30,9 @@ expect strnote1 45
 expect strnote2 51
 # Strings (Setup, KNOB 1). Fixed: each white key its own note (F3..G5), whatever the chord
 tap GLO
+# (Shift, KNOB 2, is for Relative only)
+spin K2 2
+expect shift 0
 spin K1 1
 wait 50
 expect plate 1
@@ -49,6 +52,20 @@ tapkey b4
 expect strnote0 57
 expect strnote2 60
 shot relscale.png
+# Shift moves that scale along the keys: two steps down, A minor from F3, its A3 on the third key
+spin K2 -2
+wait 50
+expect shift -2
+expect strnote0 53
+expect strnote1 55
+expect strnote2 57
+shot relshift.png
+spin K2 -9
+expect shift -6
+spin K2 6
+wait 50
+expect shift 0
+expect strnote0 57
 spin K1 -2
 wait 50
 expect plate 0

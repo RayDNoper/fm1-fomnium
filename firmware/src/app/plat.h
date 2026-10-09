@@ -37,6 +37,12 @@ void plat_play_red(int red);           /* PLAY lights green; red (its other LED)
 int plat_midi_in(uint32_t *pkt);       /* 1 = got one (called from the audio ISR) */
 void plat_midi_out(uint32_t pkt);      /* queue one (audio ISR or main loop) */
 
+/* SysEx in and out, for the editor (app/editor.c): the frame that waits, without its F0 and F7, until
+ * done; and a whole message, F0 .. F7, to the host */
+int plat_sysex_get(const uint8_t **p, uint32_t *n);   /* 1 = one waits */
+void plat_sysex_done(void);
+int plat_sysex_send(const uint8_t *p, uint32_t n);    /* 0 = queued */
+
 /* persistent storage (Felucca storage.c objects: A/B sectors, CRC, torn-write safe) */
 int plat_store_load(uint32_t obj, void *dst, uint32_t max);   /* bytes loaded, < 0 = none / bad */
 int plat_store_save(uint32_t obj, const void *src, uint32_t len);   /* 0 = ok */

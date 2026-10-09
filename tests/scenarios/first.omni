@@ -45,3 +45,21 @@ expect padtype6 3
 tap GLO
 wait 50
 shot setup.png
+# GLO again: the second Setup page, with Dark
+tap GLO
+expect view 5
+spin K2 1
+expect dark 1
+wait 50
+shot dark_setup.png
+tap HOME
+strum 0 15 30
+wait 50
+shot dark_home.png
+tap SEQ
+wait 50
+shot dark_rhythm.png
+tap GLO
+tap GLO
+spin K2 -1
+expect dark 0

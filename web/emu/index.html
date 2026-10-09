@@ -214,7 +214,7 @@ function hit(c, cls) {
 }
 // what each control does, on hover (the Buttons list below says the same)
 const TIP = { FX: "Sound page", SEL: "Chords page: press a black key, then KNOB 1 / 2 change its chord", ENV: "Hold for a minor chord",
-  LFO: "Hold for a 7th chord (with ENV: m7)", EDIT: "Next page", GLO: "Setup page", HOME: "Play page", SAVE: "Save",
+  LFO: "Hold for a 7th chord (with ENV: m7)", EDIT: "Next page", GLO: "Setup page (again: its second page)", HOME: "Play page", SAVE: "Save",
   ARP: "Chord hold", SEQ: "Rhythm page", PLAY: "Rhythm on / off", REC: "Sync start: the rhythm waits for a chord",
   "OCT-": "Strings an octave down", "OCT+": "Strings an octave up", SELECT: "Tempo", ALGORITHM: "Rhythm", PRESETS: "Chord set",
   MASTER: "Volume" };
@@ -398,6 +398,13 @@ function saveStore(store) {
 
 // ---------------------------------------------------------------- switching on
 const status = document.getElementById("status"), cpu = document.getElementById("cpu");
+// the chord set editor (../editor/), open in another tab, can talk to this FoMni-1 as it would to a real one
+let editorLink = null;
+try {
+  editorLink = new BroadcastChannel("fomni-editor");
+  editorLink.onmessage = (e) => { if (e.data && e.data.to === "fm1") send({ type: "sysex", data: e.data.data }); };
+} catch {}
+
 async function switchOn() {
   const go = document.getElementById("go");
   go.disabled = true;
@@ -418,6 +425,8 @@ async function switchOn() {
           window.omniLast = m;
           if (m.load !== undefined) cpu.textContent = `FoMni-1 uses ${m.load}% of this computer's time`;
           if (m.store) saveStore(m.store);
+        } else if (m.type === "sysex" && editorLink) {
+          editorLink.postMessage({ from: "fm1", data: m.data });
         }
       };
     });

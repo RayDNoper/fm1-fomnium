@@ -7,6 +7,8 @@
   emu/                          FoMni-1 in the browser (build/emu, from web/emu/build.sh)
   install/index.html            the web installer (web/omni_installer.html, with fm1pkg.js, fm1ota.js and
                                 the package's metadata inlined; Chrome or Edge, Web MIDI)
+  editor/index.html             the chord set editor (web/omni_editor.html, with fomni_ed.js inlined; it talks
+                                to the FM-1 over Web MIDI, or to emu/ in another tab)
   firmware/omni-VERSION.fwsc    the package the installer writes; also the download
 
   tools/make_pages.py build/omni-0.1-beta.fwsc 0.1-beta OUT_DIR
@@ -87,6 +89,7 @@ OM-84's ten rhythms and a reggae one, which can play the bass and chord in time.
 uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own firmware back. Installing is at your own risk.</div>
 <nav class="ways" aria-label="Get FoMni-1">
   <a href="emu/"><strong>Try it in the browser</strong><span>The same code the FM-1 runs, with sound. Drag across the white keys to strum; no FM-1 needed.</span></a>
+  <a href="editor/"><strong>Chord set editor</strong><span>The chords on the black keys, eight sets of them, edited from the browser with the FM-1 connected by USB. It works with the emulator too.</span></a>
   <a href="install/"><strong>Install</strong><span>From Chrome or Edge, with the FM-1 connected by USB. Nothing to install on the computer.</span></a>
   <a href="firmware/__PKG__"><strong>Download __PKG__</strong><span>For the command-line installer: <code>python3 tools/fm1_install.py __PKG__</code></span></a>
   <a href="__REPO__"><strong>Source</strong><span>GitHub, GPL-3.0. Built on Felucca by Hügelton Instruments; sounds and rhythms from Jan125's Chordian.</span></a>
@@ -113,7 +116,7 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
   <li><b>SEQ: Rhythm.</b> Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).</li>
   <li><b>FX: Sound.</b> Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.</li>
   <li><b>SEL: Chords.</b> Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 and 4 are Transpose (−6 to +6) and Octave.</li>
-  <li><b>GLO: Setup.</b> Strings (Triads: the white keys play the chord's tones; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).</li>
+  <li><b>GLO: Setup.</b> Strings (Triads: the white keys play the chord's tones; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Shift (with Relative: the scale moved along the keys, −6 to +6 of its steps, for a melody that sits elsewhere than from the root up), Tune, MIDI out. Press GLO again for <b>Setup 2</b>: Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off), Dark (the screen in dark colours), Harp and Chord (the voice of the strings and of the chord: the Omnichord's, or an FM sound).</li>
 </ul>
 <h2>MIDI</h2>
 <p>MIDI comes in over USB and the TRS jack (the FM-1's jack is an input), and goes out over USB.</p>
@@ -144,7 +147,7 @@ def main(pkg, version, out):
     name = f"omni-{re.sub(r'[^A-Za-z0-9.-]', '-', version)}.fwsc"
     if out.exists():
         shutil.rmtree(out)
-    for d in ("install", "firmware"):
+    for d in ("install", "firmware", "editor"):
         (out / d).mkdir(parents=True)
     shutil.copy(pkg, out / "firmware" / name)
     page = (SRC / "web" / "omni_installer.html").read_text(encoding="utf-8")
@@ -155,6 +158,11 @@ def main(pkg, version, out):
         if page.count(mark) != 1:
             raise SystemExit(f"omni_installer.html must contain {mark} once")
     (out / "install" / "index.html").write_text(page.replace("/*LIB*/", lib).replace("/*META*/", meta), encoding="utf-8")
+    page = (SRC / "web" / "omni_editor.html").read_text(encoding="utf-8")
+    if page.count("/*LIB*/") != 1:
+        raise SystemExit("omni_editor.html must contain /*LIB*/ once")
+    (out / "editor" / "index.html").write_text(
+        page.replace("/*LIB*/", strip_module((SRC / "web" / "fomni_ed.js").read_text(encoding="utf-8"))), encoding="utf-8")
     shutil.copytree(SRC / "docs" / "img", out / "img")
     (out / "index.html").write_text(LANDING.replace("__VERSION__", html.escape(version)).replace("__PKG__", name)
                                     .replace("__REPO__", REPO), encoding="utf-8")
@@ -163,7 +171,7 @@ def main(pkg, version, out):
         raise SystemExit("no build/emu/omni.wasm: run web/emu/build.sh (needs Emscripten)")
     shutil.copytree(emu, out / "emu")
     (out / ".nojekyll").write_text("")
-    print(f"site: {out}: index.html, install/ ({product}), emu/, firmware/{name} ({len(raw)} B)")
+    print(f"site: {out}: index.html, install/ ({product}), editor/, emu/, firmware/{name} ({len(raw)} B)")
 
 
 if __name__ == "__main__":

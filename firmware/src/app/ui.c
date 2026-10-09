@@ -6,39 +6,51 @@
  *   black keys     the chord buttons; hold ENV for the minor, LFO for the 7th, both for the m7
  *   PLAY           the rhythm on / off (with SYNC START: it waits for the first chord)
  *   REC            SYNC START          ARP   CHORD HOLD          OCT- / OCT+   the plate's octave
- *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (EDIT steps through them)
+ *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (GLO again: its second page; EDIT
+ *                         steps through them all)
  *   SELECT tempo   ALGORITHM rhythm   PRESETS chord set   KNOB 1-4 the page's four values
  *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet) */
 
-enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, NVIEWS };
-static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup"};
+enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, NVIEWS };
+static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2"};
 /* the four knobs of each page: a parameter, or one of these */
-enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_NONE };
+enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
     {P_REVERB, P_SPACE, P_WIDTH, P_CREV},
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
-    {K_PLATE, P_TUNE, P_MIDI, K_LEDS},
+    {K_PLATE, K_SHIFT, P_TUNE, P_MIDI},
+    {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
 };
 
 static const uint8_t WHITE_K[OM_NSTR] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t BLACK_K[NPADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 
 /* the screen's colours: light and friendly. Cream paper, warm brown ink, one soft colour per section
- * (harp coral, chords teal, rhythm pink), each with a pale tint for the shapes at rest */
-#define K_BG RGB(250, 244, 232)
-#define K_PANEL RGB(236, 228, 212)
-#define K_LINE RGB(216, 205, 186)
-#define K_DIM RGB(150, 136, 118)
-#define K_TEXT RGB(72, 58, 48)
-#define K_WHITE RGB(255, 255, 255)
-#define K_HARP RGB(242, 120, 72)
-#define K_HARP_T RGB(248, 208, 184)
-#define K_CHORD RGB(38, 166, 154)
-#define K_CHORD_T RGB(196, 230, 222)
-#define K_RHY RGB(232, 88, 128)
-#define K_RHY_T RGB(246, 206, 218)
+ * (harp coral, chords teal, rhythm pink), each with a pale tint for the shapes at rest. And the same
+ * at night (Setup 2, Dark): cream ink on a warm black, the tints deep */
+enum { KI_BG, KI_PANEL, KI_LINE, KI_DIM, KI_TEXT, KI_WHITE, KI_HARP, KI_HARP_T, KI_CHORD, KI_CHORD_T, KI_RHY, KI_RHY_T,
+       KI_N };
+static const uint16_t PAL[2][KI_N] = {
+    {RGB(250, 244, 232), RGB(236, 228, 212), RGB(216, 205, 186), RGB(150, 136, 118), RGB(72, 58, 48), RGB(255, 255, 255),
+     RGB(242, 120, 72), RGB(248, 208, 184), RGB(38, 166, 154), RGB(196, 230, 222), RGB(232, 88, 128), RGB(246, 206, 218)},
+    {RGB(28, 24, 22), RGB(46, 40, 36), RGB(74, 65, 58), RGB(144, 132, 118), RGB(240, 230, 214), RGB(255, 255, 255),
+     RGB(246, 134, 86), RGB(96, 58, 44), RGB(64, 190, 176), RGB(30, 76, 72), RGB(240, 104, 142), RGB(92, 46, 60)},
+};
+#define K_(i) (PAL[proj.dark & 1u][i])
+#define K_BG K_(KI_BG)
+#define K_PANEL K_(KI_PANEL)
+#define K_LINE K_(KI_LINE)
+#define K_DIM K_(KI_DIM)
+#define K_TEXT K_(KI_TEXT)
+#define K_WHITE K_(KI_WHITE)
+#define K_HARP K_(KI_HARP)
+#define K_HARP_T K_(KI_HARP_T)
+#define K_CHORD K_(KI_CHORD)
+#define K_CHORD_T K_(KI_CHORD_T)
+#define K_RHY K_(KI_RHY)
+#define K_RHY_T K_(KI_RHY_T)
 
 static struct {
     uint8_t view;
@@ -122,6 +134,14 @@ static int knob_get(int k)
         return proj.leds;
     if (k == K_PLATE)
         return proj.plate;
+    if (k == K_SHIFT)                            /* the Relative scale's place on the keys: only then */
+        return proj.plate == PL_CHORD ? proj.shift : 0;
+    if (k == K_DARK)
+        return proj.dark;
+    if (k == K_VOICE)
+        return proj.voice;
+    if (k == K_CVOICE)
+        return proj.cvoice;
     return 0;
 }
 static void knob_range(int k, int *lo, int *hi)
@@ -129,16 +149,22 @@ static void knob_range(int k, int *lo, int *hi)
     if (k < P_NPARAMS) {
         *lo = om_param_info(k)->lo;
         *hi = om_param_info(k)->hi;
+    } else if (k == K_SHIFT) {
+        *lo = proj.plate == PL_CHORD ? -6 : 0;
+        *hi = proj.plate == PL_CHORD ? 6 : 0;
     } else {
         *lo = 0;
-        *hi = k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : 0;
+        *hi = k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
+              k == K_CVOICE ? OM_NCVOICES - 1 : 0;
     }
 }
 static const char *knob_name(int k)
 {
     if (k < P_NPARAMS)
         return om_param_info(k)->name;
-    return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" : k == K_PLATE ? "Strings" : "";
+    return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" :
+           k == K_PLATE ? "Strings" : k == K_DARK ? "Dark" : k == K_VOICE ? "Harp" : k == K_CVOICE ? "Chord" :
+           k == K_SHIFT ? "Shift" : "";
 }
 static void knob_text(int k, char *b)
 {
@@ -155,6 +181,25 @@ static void knob_text(int k, char *b)
             ;
     } else if (k == K_LEDS) {                    /* On: the keys, and the unlit buttons glow; Keys: no glow */
         const char *n = v == 2 ? "Keys" : v ? "On" : "Off";
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_SHIFT) {                   /* steps of the scale; "-" unless Strings is Relative */
+        if (proj.plate != PL_CHORD) {
+            b[0] = '-';
+            b[1] = 0;
+        } else {
+            if (v > 0)
+                *b++ = '+';
+            if (v < 0)
+                *b++ = '-';
+            itoa_u((uint32_t)(v < 0 ? -v : v), b);
+        }
+    } else if (k == K_VOICE || k == K_CVOICE) {
+        const char *n = k == K_VOICE ? om_voice_name(v) : om_cvoice_name(v);
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_DARK) {
+        const char *n = v ? "On" : "Off";
         while ((*b++ = *n++))
             ;
     } else if (k == K_PLATE) {                   /* the chord's tones (the OM's plate), the keys' own notes, */
@@ -191,7 +236,18 @@ static void knob_set(int k, int v)
         proj.leds = (uint8_t)v;
     } else if (k == K_PLATE) {
         proj.plate = (uint8_t)v;
-        om_plate(v);
+        om_plate(v, proj.shift);
+    } else if (k == K_SHIFT) {
+        proj.shift = (int8_t)v;
+        om_plate(proj.plate, v);
+    } else if (k == K_DARK) {                    /* the screen's colours: every band is drawn again */
+        proj.dark = (uint8_t)v;
+    } else if (k == K_VOICE) {
+        proj.voice = (uint8_t)v;
+        om_voice(v);
+    } else if (k == K_CVOICE) {
+        proj.cvoice = (uint8_t)v;
+        om_cvoice(v);
     }
     mark_dirty();
 }
@@ -297,7 +353,7 @@ static void button(int b)
     case B_SEQ: set_view(V_RHYTHM); break;
     case B_FX: set_view(V_SOUND); break;
     case B_SEL: set_view(V_PADS); break;
-    case B_GLO: set_view(V_SETUP); break;
+    case B_GLO: set_view(ui.view == V_SETUP ? V_SETUP2 : V_SETUP); break;
     case B_EDIT: set_view((ui.view + 1) % NVIEWS); break;
     case B_PLAY:
         if (om_playing) {
@@ -527,7 +583,7 @@ static void draw_header(void)
 {
     char t[24];
     int msg = plat_ms() < ui.msg_until;
-    uint32_t h = hash(hash(hash(2166136261u, ui.view), om_playing | ui.armed << 1 | proj.hold << 2 | proj.sync << 3 |
+    uint32_t h = hash(hash(hash(2166136261u, ui.view | proj.dark << 8), om_playing | ui.armed << 1 | proj.hold << 2 | proj.sync << 3 |
                                                        ui.dirty << 4 | (uint32_t)msg << 5),
                       (uint32_t)proj.par[P_RHYTHM] << 8 | (uint32_t)proj.par[P_TEMPO] | (uint32_t)om_ext << 20);
     if (msg)
@@ -657,7 +713,7 @@ static void draw_pads(int32_t y0)
 static void draw_main(void)
 {
     char name[16], notes[24];
-    uint32_t h = hash(2166136261u, ui.view), s;
+    uint32_t h = hash(2166136261u, ui.view | proj.dark << 8), s;
     for (s = 0; s < OM_NSTR; s++)
         h = hash(h, (uint32_t)(om_str_level[s] * 24.0f) | (uint32_t)om_str_note[s] << 8);
     h = hash(hash(h, (uint32_t)ui.pad | ui.pad_sel << 8 | ui.root << 16 | ui.type << 24),
@@ -713,7 +769,8 @@ static void draw_main(void)
 
 static void draw_knobs(void)
 {
-    uint32_t h = hash(2166136261u, ui.view | (uint32_t)ui.touched << 8 | ui.pad_sel << 16), i;
+    uint32_t h = hash(2166136261u, ui.view | (uint32_t)ui.touched << 8 | ui.pad_sel << 16 | (uint32_t)proj.dark << 24),
+             i;
     int now_touch = plat_ms() < ui.touch_until;
     for (i = 0; i < 4; i++)
         h = hash(h, (uint32_t)knob_get(VIEW_KNOB[ui.view][i]));
@@ -761,7 +818,7 @@ static void draw_knobs(void)
 static void leds(void)
 {
     uint32_t b = 0, k = 0, i;
-    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO};
+    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO, B_GLO};
     b |= 1u << VIEW_BTN[ui.view];
     if (om_playing)
         b |= (om_step & 3u) < 2u ? 1u << B_PLAY : 0u;

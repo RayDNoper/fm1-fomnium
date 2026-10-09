@@ -42,7 +42,7 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 - **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
 - **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
 - **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 and 4 are Transpose (−6 to +6) and Octave.
-- **GLO: Setup.** Strings (Triads: the white keys play the chord's tones; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).
+- **GLO: Setup.** Strings (Triads: the white keys play the chord's tones; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Shift (with Relative: the scale moved along the keys, −6 to +6 of its steps, for a melody that sits elsewhere than from the root up), Tune, MIDI out. Press GLO again for **Setup 2**: Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off), Dark (the screen in dark colours), Harp and Chord (the voice of the strings and of the chord: the Omnichord's, or an FM sound).
 
 **Voice 1** is the Omnichord's shimmering harp, and **Voice 2** is its plain one. Mix them, and
 set how long the strings ring with **Sustain**.
@@ -56,6 +56,10 @@ MIDI comes in over USB and the TRS jack (the FM-1's jack is an input), and goes 
 - **In, clock:** the rhythm follows MIDI clock and start / stop; the screen shows EXT for the tempo.
 - **Out** (on by default, Setup page): the strings on channel 1, the chord on 2, the bass on 3, the drums
   on 10, and clock with start / stop when the rhythm runs on its own tempo.
+
+### Chord set editor
+
+A web page (`web/omni_editor.html`, on the site next to the installer) shows the eight chord sets and changes them on the FM-1 over USB, in Chrome or Edge; it saves and loads them as a file. It talks SysEx ([web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md)), and works with the browser emulator too.
 
 ## Building and testing
 
