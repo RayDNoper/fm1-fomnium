@@ -81,7 +81,7 @@ same code for the browser.
 
 ## Credits
 
-FoMni-1 is by Charles Vestal: [charlesvestal/fm1-fomni](https://github.com/charlesvestal/fm1-fomni). This is a fork of it, with a
+FoMni-1 comes from [charlesvestal/fm1-fomni](https://github.com/charlesvestal/fm1-fomni). This is a fork of it, with a
 reggae rhythm, chord sets, scales on the strum plate, a dark screen, FM voices, a chord set editor and
 a firmware switcher added. The FM voices follow the DIGITAL engine of
 [SLOOP](https://github.com/isod89/sloop-fm1) (from Felucca).
