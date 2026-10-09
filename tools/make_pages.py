@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Make the FoMni-1 site for GitHub Pages (https://charlesvestal.github.io/fm1-fomni/):
+"""Make the FoMni-1 site for GitHub Pages (https://raydnoper.github.io/fm1-fomnium/):
 
   index.html                    what FoMni-1 is, how it plays, and the ways in: try, install, download, source
   img/                          screenshots (docs/img)
@@ -9,12 +9,15 @@
                                 the package's metadata inlined; Chrome or Edge, Web MIDI)
   editor/index.html             the chord set editor (web/omni_editor.html, with fomni_ed.js inlined; it talks
                                 to the FM-1 over Web MIDI, or to emu/ in another tab)
+  switch/                       the firmware switcher (web/omni_switch.html: several packages kept in the browser,
+                                any of them installed; with switch_sw.js it works off line, as an app on a phone)
   firmware/omni-VERSION.fwsc    the package the installer writes; also the download
 
   tools/make_pages.py build/omni-0.1-beta.fwsc 0.1-beta OUT_DIR
 
 The package must be a release build (./build.sh --release X.Y): its identity, FM-1_8XXYYZZ, is what
 the installer checks the download against and what the FM-1 reports after the install."""
+import hashlib
 import html
 import json
 import re
@@ -26,7 +29,7 @@ SRC = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC / "web"))
 from make_site import product_of, strip_module  # noqa: E402  (Felucca's: the package format)
 
-REPO = "https://github.com/charlesvestal/fm1-fomni"
+REPO = "https://github.com/RayDNoper/fm1-fomnium"
 
 LANDING = """<!doctype html>
 <html lang="en">
@@ -91,6 +94,7 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
   <a href="emu/"><strong>Try it in the browser</strong><span>The same code the FM-1 runs, with sound. Drag across the white keys to strum; no FM-1 needed.</span></a>
   <a href="editor/"><strong>Chord set editor</strong><span>The chords on the black keys, eight sets of them, edited from the browser with the FM-1 connected by USB. It works with the emulator too.</span></a>
   <a href="install/"><strong>Install</strong><span>From Chrome or Edge, with the FM-1 connected by USB. Nothing to install on the computer.</span></a>
+  <a href="switch/"><strong>Firmware switcher</strong><span>For the stage: keep several FM-1 firmwares on a phone or laptop and write any of them over USB. It works without a network once opened.</span></a>
   <a href="firmware/__PKG__"><strong>Download __PKG__</strong><span>For the command-line installer: <code>python3 tools/fm1_install.py __PKG__</code></span></a>
   <a href="__REPO__"><strong>Source</strong><span>GitHub, GPL-3.0. Built on Felucca by Hügelton Instruments; sounds and rhythms from Jan125's Chordian.</span></a>
 </nav>
@@ -136,6 +140,35 @@ trademarks of their owners. FoMni-1 is not affiliated with any of them.</p>
 """
 
 
+def switcher(out, lib, meta, raw):
+    """switch/: the page, its service worker (a cache named after what it holds), the app manifest and icons"""
+    from PIL import Image, ImageDraw, ImageFont
+    page = (SRC / "web" / "omni_switch.html").read_text(encoding="utf-8")
+    for mark in ("/*LIB*/", "/*META*/"):
+        if page.count(mark) != 1:
+            raise SystemExit(f"omni_switch.html must contain {mark} once")
+    page = page.replace("/*LIB*/", lib).replace("/*META*/", meta)
+    pkg = json.loads(meta)["pkg"]
+    keep = ["./", "manifest.webmanifest", "icon-192.png", "icon-512.png", pkg]
+    ver = hashlib.sha256(page.encode() + raw).hexdigest()[:12]
+    sw = (SRC / "web" / "switch_sw.js").read_text(encoding="utf-8")
+    d = out / "switch"
+    (d / "index.html").write_text(page, encoding="utf-8")
+    (d / "sw.js").write_text(sw.replace("/*VER*/", ver).replace("/*KEEP*/", json.dumps(keep)), encoding="utf-8")
+    (d / "manifest.webmanifest").write_text(json.dumps({
+        "name": "FM-1 firmware switcher", "short_name": "FM-1 switch", "start_url": "./", "scope": "./",
+        "display": "standalone", "background_color": "#1c1816", "theme_color": "#1c1816",
+        "icons": [{"src": f"icon-{n}.png", "sizes": f"{n}x{n}", "type": "image/png", "purpose": "any maskable"}
+                  for n in (192, 512)]}, indent=1), encoding="utf-8")
+    font = ImageFont.truetype(str(SRC / "assets" / "fonts" / "BarlowSemiCondensed-Bold.ttf"), 200)
+    icon = Image.new("RGB", (512, 512), (224, 104, 58))
+    draw = ImageDraw.Draw(icon)
+    box = draw.textbbox((0, 0), "FM-1", font=font)
+    draw.text(((512 - box[2] - box[0]) / 2, (512 - box[3] - box[1]) / 2), "FM-1", font=font, fill=(250, 244, 232))
+    icon.save(d / "icon-512.png")
+    icon.resize((192, 192), Image.LANCZOS).save(d / "icon-192.png")
+
+
 def main(pkg, version, out):
     pkg, out = Path(pkg), Path(out)
     raw = pkg.read_bytes()
@@ -147,7 +180,7 @@ def main(pkg, version, out):
     name = f"omni-{re.sub(r'[^A-Za-z0-9.-]', '-', version)}.fwsc"
     if out.exists():
         shutil.rmtree(out)
-    for d in ("install", "firmware", "editor"):
+    for d in ("install", "firmware", "editor", "switch"):
         (out / d).mkdir(parents=True)
     shutil.copy(pkg, out / "firmware" / name)
     page = (SRC / "web" / "omni_installer.html").read_text(encoding="utf-8")
@@ -158,6 +191,7 @@ def main(pkg, version, out):
         if page.count(mark) != 1:
             raise SystemExit(f"omni_installer.html must contain {mark} once")
     (out / "install" / "index.html").write_text(page.replace("/*LIB*/", lib).replace("/*META*/", meta), encoding="utf-8")
+    switcher(out, lib, meta, raw)
     page = (SRC / "web" / "omni_editor.html").read_text(encoding="utf-8")
     if page.count("/*LIB*/") != 1:
         raise SystemExit("omni_editor.html must contain /*LIB*/ once")
@@ -171,7 +205,7 @@ def main(pkg, version, out):
         raise SystemExit("no build/emu/omni.wasm: run web/emu/build.sh (needs Emscripten)")
     shutil.copytree(emu, out / "emu")
     (out / ".nojekyll").write_text("")
-    print(f"site: {out}: index.html, install/ ({product}), editor/, emu/, firmware/{name} ({len(raw)} B)")
+    print(f"site: {out}: index.html, install/ ({product}), editor/, switch/, emu/, firmware/{name} ({len(raw)} B)")
 
 
 if __name__ == "__main__":

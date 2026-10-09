@@ -67,9 +67,12 @@ export class Link {
     return p;
   }
 
+  // (a port that only sends back what it is sent, as ALSA's "Midi Through" does, answers INFO with nothing:
+  // that is not an FM-1)
   async info(timeout) {
     const a = await this.request(CMD.INFO, [], timeout);
     const end = a.indexOf(0, 4);
+    if (a.length < 5 || a[0] < 1 || a[1] < 1 || a[1] > 16 || a[2] < 1 || a[2] > 16 || a[3] !== TYPES.length) throw new Error("not a FoMni-1");
     this.nsets = a[1];
     this.npads = a[2];
     return { protocol: a[0], nsets: a[1], npads: a[2], ntypes: a[3],
@@ -78,12 +81,14 @@ export class Link {
 
   async state() {
     const a = await this.request(CMD.STATE);
+    if (a.length !== 5) throw new Error("a broken reply");
     return { set: a[0], sig: (a[1] | a[2] << 7 | a[3] << 14 | a[4] << 21) >>> 0 };
   }
 
   // { set, sets: [[{ root, type } x 11] x 8] }
   async sets() {
     const a = await this.request(CMD.SETS);
+    if (a.length !== 1 + 2 * this.nsets * this.npads) throw new Error("a broken reply");
     const sets = [];
     for (let s = 0; s < this.nsets; s++) {
       const row = [];
@@ -98,6 +103,7 @@ export class Link {
 
   async pad(set, pad, c) {
     const a = await this.request(CMD.PAD, [set, pad, c.root, c.type]);
+    if (a.length !== 4) throw new Error("a broken reply");
     return { root: a[2], type: a[3] };
   }
 

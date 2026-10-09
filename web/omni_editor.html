@@ -211,8 +211,9 @@ async function connected(l, closer, what) {
   close = closer;
   sig = -1;
   misses = 0;
+  sets = null;                                       // (not another FM-1's, from before)
   await look();
-  if (!sets) throw new Error("no reply");
+  if (!sets) { link = close = null; throw new Error("no reply"); }
   $("work").hidden = false;
   say(what);
   poll = setInterval(look, 700);
@@ -225,20 +226,25 @@ $("usb").onclick = async () => {
   let access;
   try { access = await navigator.requestMIDIAccess({ sysex: true }); }
   catch { say("The browser did not allow MIDI (SysEx) for this page.", true); return; }
-  for (const out of access.outputs.values()) {
-    for (const inp of access.inputs.values()) {
+  // the ports named like an FM-1 first; any other pair is still asked (a port that answers INFO is one)
+  const named = (p) => (/fm-?1|fomni/i.test(p.name || "") ? 0 : 1);
+  const outs = [...access.outputs.values()].sort((a, b) => named(a) - named(b));
+  const inps = [...access.inputs.values()].sort((a, b) => named(a) - named(b));
+  for (const out of outs) {
+    for (const inp of inps) {
       const l = new Link((bytes) => out.send(bytes));
       const listen = (ev) => l.receive(ev.data);
-      inp.addEventListener("midimessage", listen);
       const closer = () => inp.removeEventListener("midimessage", listen);
       try {
+        await Promise.all([inp.open(), out.open()]);
+        inp.addEventListener("midimessage", listen);
         const info = await l.info(300);
-        if (info.protocol < 1) throw new Error("protocol");
-        await connected(l, closer, `Connected: FoMni-1 ${info.version}, by USB.`);
+        await connected(l, closer, `Connected: FoMni-1 ${info.version}, by USB (${out.name}).`);
         return;
       } catch { closer(); }
     }
   }
+  disconnect();
   say("No FoMni-1 answered. Is it plugged in, and running FoMni-1 0.4 or later?", true);
 };
 

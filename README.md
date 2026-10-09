@@ -11,9 +11,9 @@ It is meant to be simple: one screen, four knobs a page, no patterns to program.
 
 ![FoMni's screen: a C chord strummed](docs/img/screen-strum.png) ![A minor held](docs/img/screen-chord.png) ![The rhythm page](docs/img/screen-rhythm.png)
 
-- **Try it in your browser** (no FM-1 needed): <https://charlesvestal.github.io/fm1-fomni/emu/>
-- **Install it** (Chrome or Edge, with the FM-1 plugged in): <https://charlesvestal.github.io/fm1-fomni/install/>
-- **Download the firmware file**: [releases](https://github.com/charlesvestal/fm1-fomni/releases)
+- **Try it in your browser** (no FM-1 needed): <https://raydnoper.github.io/fm1-fomnium/emu/>
+- **Install it** (Chrome or Edge, with the FM-1 plugged in): <https://raydnoper.github.io/fm1-fomnium/install/>
+- **Download the firmware file**: from the [site](https://raydnoper.github.io/fm1-fomnium/)
 
 Installing is at your own risk, though it's hard to get stuck: the web installer can put M-VAVE's
 firmware back, and an FM-1 that keeps crashing starts in a safe mode.
@@ -57,6 +57,10 @@ MIDI comes in over USB and the TRS jack (the FM-1's jack is an input), and goes 
 - **Out** (on by default, Setup page): the strings on channel 1, the chord on 2, the bass on 3, the drums
   on 10, and clock with start / stop when the rhythm runs on its own tempo.
 
+### Firmware switcher
+
+For the stage: a web page (`web/omni_switch.html`, `switch/` on the site) keeps several FM-1 firmware packages in the browser of a phone or laptop (FoMni-1's own, and any `.fwsc` you add, such as the stock firmware) and writes any of them to the FM-1 over USB with the installer's updater. Opened once on line, it works without a network and can be installed as an app. Do not switch in the middle of a set.
+
 ### Chord set editor
 
 A web page (`web/omni_editor.html`, on the site next to the installer) shows the eight chord sets and changes them on the FM-1 over USB, in Chrome or Edge; it saves and loads them as a file. It talks SysEx ([web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md)), and works with the browser emulator too.
@@ -76,6 +80,11 @@ python3 tools/fm1_install.py build/omni.fwsc     # install it over USB
 same code for the browser.
 
 ## Credits
+
+FoMni-1 is by Charles Vestal: [charlesvestal/fm1-fomni](https://github.com/charlesvestal/fm1-fomni). This is a fork of it, with a
+reggae rhythm, chord sets, scales on the strum plate, a dark screen, FM voices, a chord set editor and
+a firmware switcher added. The FM voices follow the DIGITAL engine of
+[SLOOP](https://github.com/isod89/sloop-fm1) (from Felucca).
 
 The rhythms, waves, drum sounds and envelope shapes come from
 [Chordian](https://github.com/Jan125/pb.chordian), Jan125's OM-84 emulator (CC0). The platform

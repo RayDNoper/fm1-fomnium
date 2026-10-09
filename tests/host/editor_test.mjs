@@ -67,5 +67,11 @@ for (const t of ['{"fomni":"chord-sets","sets":[]}', "{}", text.replace("Cdim", 
 ok(bad === 3, "files that are not chord sets are refused");
 ok(parse(frame(CMD.INFO)).cmd === 1 && parse([0xF0, 0, 0x59, 0x11, 0xF7]) === null && chordName(parseChord("Db")) === "C#", "frames and names");
 
+// a port that sends back what it is sent (ALSA's "Midi Through") is not an FM-1
+const echo = new Link((bytes) => queueMicrotask(() => echo.receive(bytes)), { timeout: 50 });
+let notOne = false;
+try { await echo.info(); } catch { notOne = true; }
+ok(notOne, "a port that echoes is not taken for an FM-1");
+
 console.log(failed ? "FAILED" : "editor link ok");
 process.exit(failed);
