@@ -7,7 +7,7 @@
  *           Two voices, as the OM-84's: VOICE 1 shimmers (its tremolo), VOICE 2 is plain.
  *   CHORD   the chord itself (3 notes, F#3..F4) and its bass (C2..B2), held while a chord pad
  *           is down, or played in time by the rhythm (AUTO BASS SYNC).
- *   RHYTHM  ten OM-84 rhythms: bass drum, claves, hi-hat, cymbal, snare.
+ *   RHYTHM  the ten OM-84 rhythms and a reggae: bass drum, claves, hi-hat, cymbal, snare.
  *
  * The waves, envelopes and rhythm patterns follow Chordian (Jan125/pb.chordian, CC0), an OM-84
  * emulator; dsp/om_data.h and dsp/om_drums.h are generated from it (tools/import_chordian.py).

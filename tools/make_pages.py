@@ -77,7 +77,7 @@ ul.pages b { color: var(--teal); }
   allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
 <p class="lede">A chord harp for the M-VAVE FM-1, inspired by the Suzuki Omnichord. Pick a chord on the black
 keys, run a finger across the white keys, and it rings out. Behind it are an organ-like chord, a bass, and the
-OM-84's ten rhythms, which can play the bass and chord in time.</p>
+OM-84's ten rhythms and a reggae one, which can play the bass and chord in time.</p>
 <div class="shots">
   <img src="img/screen-strum.png" width="240" height="240" alt="FoMni-1's screen: the chord C, sixteen strings ringing, the chord buttons below">
   <img src="img/screen-chord.png" width="240" height="240" alt="FoMni-1's screen: A minor held">
