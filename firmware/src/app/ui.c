@@ -13,13 +13,13 @@
 enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, NVIEWS };
 static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup"};
 /* the four knobs of each page: a parameter, or one of these */
-enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_NONE };
+enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
     {P_REVERB, P_SPACE, P_WIDTH, P_CREV},
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
-    {P_TUNE, P_MIDI, K_LEDS, K_NONE},
+    {K_PLATE, P_TUNE, P_MIDI, K_LEDS},
 };
 
 static const uint8_t WHITE_K[OM_NSTR] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
@@ -120,6 +120,8 @@ static int knob_get(int k)
         return proj.pad_type[proj.set][ui.pad_sel];
     if (k == K_LEDS)
         return proj.leds;
+    if (k == K_PLATE)
+        return proj.plate;
     return 0;
 }
 static void knob_range(int k, int *lo, int *hi)
@@ -129,14 +131,14 @@ static void knob_range(int k, int *lo, int *hi)
         *hi = om_param_info(k)->hi;
     } else {
         *lo = 0;
-        *hi = k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : 0;
+        *hi = k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : 0;
     }
 }
 static const char *knob_name(int k)
 {
     if (k < P_NPARAMS)
         return om_param_info(k)->name;
-    return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" : "";
+    return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" : k == K_PLATE ? "Strings" : "";
 }
 static void knob_text(int k, char *b)
 {
@@ -153,6 +155,10 @@ static void knob_text(int k, char *b)
             ;
     } else if (k == K_LEDS) {                    /* On: the keys, and the unlit buttons glow; Keys: no glow */
         const char *n = v == 2 ? "Keys" : v ? "On" : "Off";
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_PLATE) {                   /* the chord's tones (the OM's plate), the keys' own notes, */
+        const char *n = v == PL_CHORD ? "Relative" : v ? "Fixed" : "Triads";   /* the chord's scale */
         while ((*b++ = *n++))
             ;
     } else {
@@ -183,6 +189,9 @@ static void knob_set(int k, int v)
         }
     } else if (k == K_LEDS) {
         proj.leds = (uint8_t)v;
+    } else if (k == K_PLATE) {
+        proj.plate = (uint8_t)v;
+        om_plate(v);
     }
     mark_dirty();
 }
@@ -655,7 +664,7 @@ static void draw_main(void)
              (uint32_t)proj.par[P_TRANSPOSE] << 8 | (uint32_t)(om_chord_level * 8.0f));
     for (s = 0; s < NPADS; s++)
         h = hash(h, proj.pad_root[proj.set][s] | proj.pad_type[proj.set][s] << 4);
-    h = hash(h, proj.set);
+    h = hash(h, proj.set | proj.plate << 8);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
     if (h == ui.sig[1])
@@ -687,7 +696,12 @@ static void draw_main(void)
         notes[2] = 'T';
         notes[3] = ' ';
         itoa_u(proj.set + 1u, notes + 4);
-        cv_text(240 - 12 - text_w(&FONT_XS, notes), 1, &FONT_XS, notes, K_CHORD);
+        x = 240 - 12 - text_w(&FONT_XS, notes);
+        cv_text(x, 1, &FONT_XS, notes, K_CHORD);
+        if (proj.plate) {
+            const char *m = proj.plate == PL_CHORD ? "REL SCALE" : "SCALE";
+            cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, K_HARP);
+        }
     }
     if (ui.view == V_RHYTHM)
         draw_rhythm(44, 62);

@@ -58,6 +58,7 @@ const om_rhythm_t *om_rhythm(int i);
 void om_init(void);
 void om_set(int param, int value);
 void om_chord(int root, int type);             /* the chord the harp, chord and bass play from now on */
+void om_plate(int mode);                       /* the strum plate: PL_TRIAD the chord's tones, or a scale (PL_*) */
 void om_gate(int on);                          /* a chord pad held (1) / released (0): the chord section */
 void om_strum(int string);                     /* pluck string 0..15 */
 void om_play(int on);                          /* the rhythm: start (from its first step) / stop */
@@ -82,5 +83,11 @@ extern volatile uint8_t om_playing, om_step, om_steps;
 extern volatile uint8_t om_drum_hit;           /* bits: drums hit since the UI last cleared it */
 extern volatile uint8_t om_ext;                /* 1: following an external MIDI clock */
 /* the notes a chord gives: harp strings (16, with transpose and octave), chord (3) and bass root */
+/* the plate as a scale. Fixed: each white key its own note, F3..G5 in C (transpose moves the key).
+ * Of the chord: its type's seven notes (OM_TYPE_SCALE) up from its root, C3..B3, two octaves and two more */
+enum { PL_TRIAD, PL_FIXED, PL_CHORD, PL_NMODES };
+extern const int8_t OM_TYPE_SCALE[CH_NTYPES][7];
+void om_scale(int transpose, int octave, uint8_t harp[OM_NSTR]);
+void om_chord_scale(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR]);
 void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR], uint8_t chord[OM_NCHORD],
                 uint8_t *bass);

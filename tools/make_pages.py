@@ -94,7 +94,7 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
 
 <h2>Playing</h2>
 <table>
-<tr><td>White keys</td><td>The strum plate. Each key plucks a string of the chord: root, third and fifth, folded into an F#–F window, five groups up and a root on top, as on the Omnichord.</td></tr>
+<tr><td>White keys</td><td>The strum plate. Each key plucks a string of the chord: root, third and fifth, folded into an F#–F window, five groups up and a root on top, as on the Omnichord. Strings on the Setup page changes this: Fixed makes each white key play its own note, F3 to G5 in C major, moved by Transpose and Octave; Relative lays out the scale of the chord that is playing, up from its root.</td></tr>
 <tr><td>Black keys</td><td>The chord buttons: F C G, Dm Am, Em G7 E7, D7 Bb, A7 in the first chord set. Hold ENV for the minor, LFO for the 7th, both for the m7. Change any of them on the Chords page (SEL).</td></tr>
 <tr><td>PLAY · REC</td><td>The rhythm, on and off. REC is sync start: the rhythm waits for your first chord.</td></tr>
 <tr><td>ARP</td><td>Chord hold: the chord keeps going after you let go.</td></tr>
@@ -113,7 +113,7 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
   <li><b>SEQ: Rhythm.</b> Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).</li>
   <li><b>FX: Sound.</b> Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.</li>
   <li><b>SEL: Chords.</b> Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 and 4 are Transpose (−6 to +6) and Octave.</li>
-  <li><b>GLO: Setup.</b> Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).</li>
+  <li><b>GLO: Setup.</b> Strings (Triads: the white keys play the chord's tones; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).</li>
 </ul>
 <h2>MIDI</h2>
 <p>MIDI comes in over USB and the TRS jack (the FM-1's jack is an input), and goes out over USB.</p>

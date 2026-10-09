@@ -50,6 +50,7 @@ static int project_valid(void)
         proj.sync = old[2 * NPADS + 1];
         proj.leds = old[2 * NPADS + 2];
         proj.set = 0;
+        proj.plate = 0;
         memset(proj.rsv, 0, sizeof proj.rsv);
     }
     proj.format = PROJ_FORMAT;
@@ -62,7 +63,7 @@ static int project_valid(void)
         for (i = 0; i < NPADS; i++)
             if (proj.pad_root[s][i] > 11u || proj.pad_type[s][i] >= CH_NTYPES)
                 return 0;
-    return proj.set < NSETS;
+    return proj.set < NSETS && proj.plate < PL_NMODES;
 }
 
 int project_load(void)
@@ -83,4 +84,5 @@ void project_apply(void)
     int i;
     for (i = 0; i < P_NPARAMS; i++)
         om_set(i, proj.par[i]);
+    om_plate(proj.plate);
 }

@@ -20,6 +20,12 @@ const char *const OM_NOTE_NAME[12] = {"C", "C#", "D", "Eb", "E", "F", "F#", "G",
 const int8_t OM_TYPE_TONES[CH_NTYPES][3] = {
     {0, 4, 7}, {0, 3, 7}, {0, 4, 10}, {0, 4, 11}, {0, 3, 10}, {0, 3, 6}, {0, 4, 8}, {0, 5, 7}, {0, 4, 2}};
 
+/* the scale that goes with each type: major, natural minor, Mixolydian, major, Dorian, Locrian with a
+ * major 2nd, Lydian augmented, Mixolydian, major */
+const int8_t OM_TYPE_SCALE[CH_NTYPES][7] = {
+    {0, 2, 4, 5, 7, 9, 11}, {0, 2, 3, 5, 7, 8, 10}, {0, 2, 4, 5, 7, 9, 10}, {0, 2, 4, 5, 7, 9, 11}, {0, 2, 3, 5, 7, 9, 10},
+    {0, 2, 3, 5, 6, 8, 10}, {0, 2, 4, 6, 8, 9, 11}, {0, 2, 4, 5, 7, 9, 10}, {0, 2, 4, 5, 7, 9, 11}};
+
 static const om_param_t PARAMS[P_NPARAMS] = {
     {"Voice 1", 0, 100, 80}, {"Voice 2", 0, 100, 45}, {"Sustain", 0, 100, 50}, {"Chord", 0, 100, 60},
     {"Rhythm", 0, OM_NRHYTHM - 1, 0}, {"Tempo", 60, 240, 116}, {"Drums", 0, 100, 70}, {"Auto bass", 0, 1, 1},
@@ -74,6 +80,22 @@ void om_param_text(int i, int v, char *b)
 /* ------------------------------------------------------------- voicing --- */
 static int fold(int pc, int lo) { return lo + (((pc - lo) % 12) + 12) % 12; }
 
+void om_scale(int transpose, int octave, uint8_t harp[OM_NSTR])
+{
+    static const uint8_t WHITE[OM_NSTR] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};   /* over F3 */
+    int i;
+    for (i = 0; i < OM_NSTR; i++)
+        harp[i] = (uint8_t)(53 + WHITE[i] + transpose + 12 * octave);
+}
+
+void om_chord_scale(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR])
+{
+    const int8_t *sc = OM_TYPE_SCALE[(unsigned)type < CH_NTYPES ? type : 0];
+    int base = fold(root + transpose, 48 + 12 * octave), i;
+    for (i = 0; i < OM_NSTR; i++)
+        harp[i] = (uint8_t)(base + 12 * (i / 7) + sc[i % 7]);
+}
+
 void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR], uint8_t chord[OM_NCHORD],
                 uint8_t *bass)
 {
@@ -89,7 +111,7 @@ void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_N
 }
 
 /* ------------------------------------------------------------ commands --- */
-enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK };
+enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_PLATE };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -104,6 +126,7 @@ static void post(uint32_t c, int a, int b)
 }
 void om_set(int p, int v) { post(C_SET, p, v); }
 void om_chord(int root, int type) { post(C_CHORD, root, type); }
+void om_plate(int mode) { post(C_PLATE, mode, 0); }
 void om_gate(int on) { post(C_GATE, on, 0); }
 void om_strum(int s) { post(C_STRUM, s, 0); }
 void om_play(int on) { post(C_PLAY, on, 0); }
@@ -123,6 +146,7 @@ static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate;
 static float pan_l[OM_NSTR], pan_r[OM_NSTR];
 static int root, type;
 static uint8_t harp_n[OM_NSTR], chord_n[OM_NCHORD], bass_n;
+static uint8_t plate;                         /* what the strum plate plays: PL_* (om_plate) */
 static int gate;
 
 static float sin3[360];                       /* Chordian's shimmer shape: |sin|^0.6 */
@@ -248,6 +272,10 @@ static void retune(void)
 {
     int i;
     om_voicing(root, type, par[P_TRANSPOSE], par[P_OCTAVE], harp_n, chord_n, &bass_n);
+    if (plate == PL_FIXED)
+        om_scale(par[P_TRANSPOSE], par[P_OCTAVE], harp_n);
+    else if (plate == PL_CHORD)
+        om_chord_scale(root, type, par[P_TRANSPOSE], par[P_OCTAVE], harp_n);
     for (i = 0; i < OM_NSTR; i++)                 /* what each string plays when plucked next */
         om_str_note[i] = harp_n[i];
     for (i = 0; i < OM_NCHORD; i++)
@@ -536,6 +564,10 @@ static void drain(void)
         case C_CHORD:
             root = a % 12;
             type = b < CH_NTYPES ? b : 0;
+            retune();
+            break;
+        case C_PLATE:
+            plate = (uint8_t)(a < PL_NMODES ? a : 0);
             retune();
             break;
         case C_GATE:

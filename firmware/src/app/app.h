@@ -22,7 +22,8 @@ typedef struct {
     uint8_t sync;                        /* SYNC START: the rhythm starts with the first chord */
     uint8_t leds;                        /* lights: 0 off, 1 keys and the buttons' glow, 2 keys only */
     uint8_t set;                         /* the chord set in use */
-    uint8_t rsv[12];                     /* room to grow: an older, shorter project loads (zeros here) */
+    uint8_t plate;                       /* the strum plate: PL_* (the chord's tones, a fixed scale, the chord's) */
+    uint8_t rsv[11];                     /* room to grow: an older, shorter project loads (zeros here) */
 } project_t;
 
 extern project_t proj;

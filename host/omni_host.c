@@ -358,6 +358,8 @@ static int expect(const char *what, const char *val)
         got = proj.hold;
     else if (!strcmp(what, "sync"))
         got = proj.sync;
+    else if (!strcmp(what, "plate"))
+        got = proj.plate;
     else if (!strcmp(what, "set"))
         got = proj.set;
     else if (!strcmp(what, "armed"))

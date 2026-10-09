@@ -22,7 +22,7 @@ firmware back, and an FM-1 that keeps crashing starts in a safe mode.
 
 | | |
 |---|---|
-| White keys | The strum plate. Each key plucks one string of the chord. As on the Omnichord, each group of three keys is root, third and fifth, folded into an F#–F window, five groups up, with a root on top. |
+| White keys | The strum plate. Each key plucks one string of the chord. As on the Omnichord, each group of three keys is root, third and fifth, folded into an F#–F window, five groups up, with a root on top. Strings on the Setup page changes this: **Fixed** makes each white key play its own note, F3 to G5 in C major, moved by Transpose and Octave; **Relative** lays out the scale of the chord that is playing, up from its root. |
 | Black keys | Chord buttons (F C G, Dm Am, Em G7 E7, D7 Bb, A7 in the first chord set). Hold **ENV** for the minor, **LFO** for the 7th, both for the m7, the Omnichord's three rows. |
 | PLAY | The rhythm, on and off. |
 | REC | SYNC START: the rhythm waits for your first chord. |
@@ -42,7 +42,7 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 - **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
 - **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
 - **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 and 4 are Transpose (−6 to +6) and Octave.
-- **GLO: Setup.** Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).
+- **GLO: Setup.** Strings (Triads: the white keys play the chord's tones; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).
 
 **Voice 1** is the Omnichord's shimmering harp, and **Voice 2** is its plain one. Mix them, and
 set how long the strings ring with **Sustain**.

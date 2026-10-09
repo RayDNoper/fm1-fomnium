@@ -56,6 +56,25 @@ int main(void)
     check("C7 is a triad without its fifth: C E Bb", c[0] == 60 && c[1] == 64 && c[2] == 58);
     om_voicing(0, CH_MAJ, 2, 1, h, c, &bass);
     check("transpose +2, octave +1: D, a group up", h[0] == 62 && c[0] == 62 && bass == 38);
+    om_scale(0, 0, h);
+    check("the plate as a scale: the white keys' own notes, F3..G5", h[0] == 53 && h[3] == 59 && h[4] == 60 && h[15] == 79);
+    om_scale(2, 1, h);
+    check("... transpose +2, octave +1: D major, an octave up", h[4] == 74 && h[3] == 73);
+    om_chord_scale(9, CH_MIN, 0, 0, h);
+    check("the chord's scale: A minor up from A3", h[0] == 57 && h[2] == 60 && h[7] == 69 && h[15] == 83);
+    om_chord_scale(7, CH_7, 0, 0, h);
+    check("... G7: Mixolydian, with its F", h[0] == 55 && h[6] == 65);
+    {
+        int t, k, ok = 1;
+        for (t = 0; t < CH_NTYPES; t++)
+            for (k = 0; k < 3; k++) {
+                int j, in = 0;
+                for (j = 0; j < 7; j++)
+                    in |= OM_TYPE_SCALE[t][j] == OM_TYPE_TONES[t][k];
+                ok &= in;
+            }
+        check("every type's scale holds its chord's three tones", ok);
+    }
     {
         int i, ok = 1;
         for (i = 0; i < 12 && ok; i++) {
