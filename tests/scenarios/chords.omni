@@ -64,23 +64,50 @@ tap OCT+
 expect par13 1
 tap OCT-
 expect par13 0
-# transpose with PRESETS: +2
-turn PRESET 2
-expect par12 2
-# the CHORDS page: press a button, change its chord
+# PRESETS picks the chord set: the second is the same buttons in G, and it does not go past the last
+turn PRESET 1
+expect set 1
+tapkey b1
+expect root 7
+turn PRESET 9
+expect set 7
+turn PRESET -9
+expect set 0
+# a held chord goes to its button's chord in the new set
+tap ARP
+tapkey b1
+expect root 0
+turn PRESET 1
+expect root 7
+expect pad 1
+turn PRESET -1
+expect root 0
+tapkey b1
+tap ARP
+# the CHORDS page: press a button, change its chord; KNOB 3 transposes
 tap SEL
 expect view 3
+spin K3 2
+expect par12 2
 tapkey b10
 spin K1 -2
 spin K2 -2
 expect padroot10 7
 expect padtype10 0
 shot chords.png
+# the change is in that set only
+turn PRESET 1
+expect padroot10 4
+expect padtype10 2
+shot set2.png
 # it saves by itself when quiet, and comes back after a restart
 wait 5000
 expect dirty 0
 reboot
 wait 100
+expect set 1
+expect padroot10 4
+turn PRESET -1
 expect padroot10 7
 expect par12 2
 expect sync 1

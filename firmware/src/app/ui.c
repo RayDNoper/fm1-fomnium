@@ -7,7 +7,7 @@
  *   PLAY           the rhythm on / off (with SYNC START: it waits for the first chord)
  *   REC            SYNC START          ARP   CHORD HOLD          OCT- / OCT+   the plate's octave
  *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (EDIT steps through them)
- *   SELECT tempo   ALGORITHM rhythm   PRESETS transpose   KNOB 1-4 the page's four values
+ *   SELECT tempo   ALGORITHM rhythm   PRESETS chord set   KNOB 1-4 the page's four values
  *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet) */
 
 enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, NVIEWS };
@@ -115,9 +115,9 @@ static int knob_get(int k)
     if (k < P_NPARAMS)
         return proj.par[k];
     if (k == K_PADROOT)
-        return proj.pad_root[ui.pad_sel];
+        return proj.pad_root[proj.set][ui.pad_sel];
     if (k == K_PADTYPE)
-        return proj.pad_type[ui.pad_sel];
+        return proj.pad_type[proj.set][ui.pad_sel];
     if (k == K_LEDS)
         return proj.leds;
     return 0;
@@ -173,12 +173,12 @@ static void knob_set(int k, int v)
         om_set(k, v);
     } else if (k == K_PADROOT || k == K_PADTYPE) {
         if (k == K_PADROOT)
-            proj.pad_root[ui.pad_sel] = (uint8_t)v;
+            proj.pad_root[proj.set][ui.pad_sel] = (uint8_t)v;
         else
-            proj.pad_type[ui.pad_sel] = (uint8_t)v;
+            proj.pad_type[proj.set][ui.pad_sel] = (uint8_t)v;
         if (ui.pad == (int8_t)ui.pad_sel) {        /* the button being edited is the one sounding */
-            ui.root = proj.pad_root[ui.pad_sel];
-            ui.type = proj.pad_type[ui.pad_sel];
+            ui.root = proj.pad_root[proj.set][ui.pad_sel];
+            ui.type = proj.pad_type[proj.set][ui.pad_sel];
             om_chord(ui.root, ui.type);
         }
     } else if (k == K_LEDS) {
@@ -216,7 +216,7 @@ static void sound_chord(void) { om_chord(ui.root, ui.type); }
 static void pad_down(int p)
 {
     uint32_t b = ui.btn;
-    int type = proj.pad_type[p];
+    int type = proj.pad_type[proj.set][p];
     int mods = (b >> B_ENV & 1u) | (b >> B_LFO & 1u) << 1;
     if (mods)                                    /* the OM's rows: minor, 7th, both: m7 */
         type = mods == 1 ? CH_MIN : mods == 2 ? CH_7 : CH_M7;
@@ -226,7 +226,7 @@ static void pad_down(int p)
         ui.btn_used |= 1u << B_LFO;
     if (ui.view == V_PADS)
         ui.pad_sel = (uint8_t)p;
-    if (proj.hold && ui.pad == p && !ui.npads_down && ui.root == proj.pad_root[p] && ui.type == type) {
+    if (proj.hold && ui.pad == p && !ui.npads_down && ui.root == proj.pad_root[proj.set][p] && ui.type == type) {
         ui.pad = -1;                             /* HOLD: the sounding button again lets it go */
         om_gate(0);
         ui.npads_down++;
@@ -234,7 +234,7 @@ static void pad_down(int p)
     }
     ui.npads_down++;
     ui.pad = (int8_t)p;
-    ui.root = proj.pad_root[p];
+    ui.root = proj.pad_root[proj.set][p];
     ui.type = (uint8_t)type;
     sound_chord();
     om_gate(1);
@@ -254,6 +254,24 @@ static void pad_up(int p)
         om_gate(0);
         ui.pad = -1;
     }
+}
+
+/* PRESETS: another chord set under the buttons. A button that is sounding goes to its chord there */
+static void set_select(int s)
+{
+    char t[8] = "SET ";
+    s = s < 0 ? 0 : s >= NSETS ? NSETS - 1 : s;
+    if (s != proj.set) {
+        proj.set = (uint8_t)s;
+        if (ui.pad >= 0) {
+            ui.root = proj.pad_root[s][ui.pad];
+            ui.type = proj.pad_type[s][ui.pad];
+            sound_chord();
+        }
+        mark_dirty();
+    }
+    itoa_u((uint32_t)s + 1u, t + 4);
+    say("CHORDS", t);
 }
 
 /* ------------------------------------------------------------ buttons --- */
@@ -454,7 +472,7 @@ static void input(void)
     if ((e = plat_enc(EN_ALGO)) != 0)
         knob_set(P_RHYTHM, proj.par[P_RHYTHM] + (e > 0 ? 1 : -1));
     if ((e = plat_enc(EN_PRESET)) != 0)
-        knob_set(P_TRANSPOSE, proj.par[P_TRANSPOSE] + (e > 0 ? 1 : -1));
+        set_select(proj.set + (e > 0 ? 1 : -1));
     for (i = 0; i < 4; i++)
         if ((e = plat_enc(EN_K1 + (int)i)) != 0) {
             turn(EN_K1 + (int)i, VIEW_KNOB[ui.view][i], e);
@@ -621,9 +639,9 @@ static void draw_pads(int32_t y0)
         if (sel)
             cv_round(x - 1, y0 - 1, 20, 30, 6, K_TEXT);
         cv_round(x, y0, 18, 28, 5, on ? K_CHORD : K_CHORD_T);
-        chord_name(proj.pad_root[p], 0, t);
+        chord_name(proj.pad_root[proj.set][p], 0, t);
         text_c(x + 9, y0 + 1, &FONT_XS, t, on ? K_WHITE : K_TEXT);
-        text_c(x + 9, y0 + 13, &FONT_XS, proj.pad_type[p] ? OM_TYPE_NAME[proj.pad_type[p]] : "", on ? K_WHITE : K_CHORD);
+        text_c(x + 9, y0 + 13, &FONT_XS, OM_TYPE_NAME[proj.pad_type[proj.set][p]], on ? K_WHITE : K_CHORD);
     }
 }
 
@@ -636,7 +654,8 @@ static void draw_main(void)
     h = hash(hash(h, (uint32_t)ui.pad | ui.pad_sel << 8 | ui.root << 16 | ui.type << 24),
              (uint32_t)proj.par[P_TRANSPOSE] << 8 | (uint32_t)(om_chord_level * 8.0f));
     for (s = 0; s < NPADS; s++)
-        h = hash(h, proj.pad_root[s] | proj.pad_type[s] << 4);
+        h = hash(h, proj.pad_root[proj.set][s] | proj.pad_type[proj.set][s] << 4);
+    h = hash(h, proj.set);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
     if (h == ui.sig[1])
@@ -663,6 +682,12 @@ static void draw_main(void)
         }
         notes[k] = 0;
         cv_text(240 - 12 - text_w(&FONT_S, notes), 14, &FONT_S, notes, K_DIM);
+        notes[0] = 'S';                                 /* the chord set, small, above them */
+        notes[1] = 'E';
+        notes[2] = 'T';
+        notes[3] = ' ';
+        itoa_u(proj.set + 1u, notes + 4);
+        cv_text(240 - 12 - text_w(&FONT_XS, notes), 1, &FONT_XS, notes, K_CHORD);
     }
     if (ui.view == V_RHYTHM)
         draw_rhythm(44, 62);
@@ -766,8 +791,8 @@ void ui_init(void)
     memset(&ui, 0, sizeof ui);
     ui.pad = -1;
     ui.touched = -1;
-    ui.root = proj.pad_root[1];                  /* C, the second button */
-    ui.type = proj.pad_type[1];
+    ui.root = proj.pad_root[proj.set][1];        /* the second button: C, as it comes */
+    ui.type = proj.pad_type[proj.set][1];
     sound_chord();
     lcd_fill(0, 0, 240, 240, K_BG);
 }

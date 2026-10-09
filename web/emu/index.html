@@ -88,7 +88,7 @@ kbd { font: 600 .85em ui-monospace, Menlo, monospace; background: var(--card); b
       <li><b>PLAY</b> rhythm on / off. <b>REC</b> sync start: the rhythm waits for your first chord.</li>
       <li><b>OCT−</b> / <b>OCT+</b> move the strings an octave.</li>
       <li>Pages: <b>HOME</b> play, <b>SEQ</b> rhythm, <b>FX</b> sound, <b>SEL</b> chords (press a black key, then turn KNOB 1 and 2 to change it), <b>GLO</b> setup. <b>EDIT</b> steps through them.</li>
-      <li><b>SELECT</b> tempo, <b>ALGORITHM</b> rhythm, <b>PRESETS</b> transpose, <b>KNOB 1–4</b> the values on the screen. <b>SAVE</b> saves.</li>
+      <li><b>SELECT</b> tempo, <b>ALGORITHM</b> rhythm, <b>PRESETS</b> chord set, <b>KNOB 1–4</b> the values on the screen. <b>SAVE</b> saves.</li>
     </ul>
   </div>
   <div>
@@ -216,7 +216,7 @@ function hit(c, cls) {
 const TIP = { FX: "Sound page", SEL: "Chords page: press a black key, then KNOB 1 / 2 change its chord", ENV: "Hold for a minor chord",
   LFO: "Hold for a 7th chord (with ENV: m7)", EDIT: "Next page", GLO: "Setup page", HOME: "Play page", SAVE: "Save",
   ARP: "Chord hold", SEQ: "Rhythm page", PLAY: "Rhythm on / off", REC: "Sync start: the rhythm waits for a chord",
-  "OCT-": "Strings an octave down", "OCT+": "Strings an octave up", SELECT: "Tempo", ALGORITHM: "Rhythm", PRESETS: "Transpose",
+  "OCT-": "Strings an octave down", "OCT+": "Strings an octave up", SELECT: "Tempo", ALGORITHM: "Rhythm", PRESETS: "Chord set",
   MASTER: "Volume" };
 for (const [n, c] of [...Object.entries(buttons), ...Object.entries(knobs)]) if (TIP[n]) c.g.setAttribute("aria-description", TIP[n]);
 for (const k of Object.values(knobs)) hit(k, "knob");

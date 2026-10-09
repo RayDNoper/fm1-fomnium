@@ -358,6 +358,8 @@ static int expect(const char *what, const char *val)
         got = proj.hold;
     else if (!strcmp(what, "sync"))
         got = proj.sync;
+    else if (!strcmp(what, "set"))
+        got = proj.set;
     else if (!strcmp(what, "armed"))
         got = ui.armed;
     else if (!strcmp(what, "dirty"))
@@ -379,9 +381,9 @@ static int expect(const char *what, const char *val)
     else if (!strncmp(what, "par", 3))            /* parN: parameter N (omni.h P_*) */
         got = proj.par[atoi(what + 3)];
     else if (!strncmp(what, "padroot", 7))
-        got = proj.pad_root[atoi(what + 7)];
+        got = proj.pad_root[proj.set][atoi(what + 7)];
     else if (!strncmp(what, "padtype", 7))
-        got = proj.pad_type[atoi(what + 7)];
+        got = proj.pad_type[proj.set][atoi(what + 7)];
     else if (!strncmp(what, "strnote", 7))         /* strnoteS: string S's note */
         got = om_str_note[atoi(what + 7)];
     else if (!strncmp(what, "strlevel", 8))        /* strlevelS: string S's envelope x 100 */

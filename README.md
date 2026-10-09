@@ -23,14 +23,14 @@ firmware back, and an FM-1 that keeps crashing starts in a safe mode.
 | | |
 |---|---|
 | White keys | The strum plate. Each key plucks one string of the chord. As on the Omnichord, each group of three keys is root, third and fifth, folded into an F#–F window, five groups up, with a root on top. |
-| Black keys | Chord buttons (F C G, Dm Am, Em G7 E7, D7 Bb, A7 by default). Hold **ENV** for the minor, **LFO** for the 7th, both for the m7, the Omnichord's three rows. |
+| Black keys | Chord buttons (F C G, Dm Am, Em G7 E7, D7 Bb, A7 in the first chord set). Hold **ENV** for the minor, **LFO** for the 7th, both for the m7, the Omnichord's three rows. |
 | PLAY | The rhythm, on and off. |
 | REC | SYNC START: the rhythm waits for your first chord. |
 | ARP | CHORD HOLD: the chord keeps playing after you let go (press the same button again to stop it). |
 | OCT− / OCT+ | Move the strum plate an octave. |
 | SELECT | Tempo. |
 | ALGORITHM | Rhythm. |
-| PRESETS | Transpose (−6 to +6). |
+| PRESETS | Chord set, 1 to 8: what the black keys play. As they come, the sets are the same buttons in C, G, D, A, E, F, Bb and Eb. |
 | KNOB 1–4 | The four values on the screen (see the pages below). |
 | SAVE | Saves. FoMni also saves by itself a few seconds after a change, once it's quiet. |
 
@@ -41,7 +41,7 @@ Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 - **HOME: Play.** Voice 1, Voice 2, Sustain, Chord level.
 - **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
 - **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
-- **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). KNOB 3 and 4 are Transpose and Octave.
+- **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 and 4 are Transpose (−6 to +6) and Octave.
 - **GLO: Setup.** Tune, MIDI out, Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off).
 
 **Voice 1** is the Omnichord's shimmering harp, and **Voice 2** is its plain one. Mix them, and
