@@ -1,0 +1,451 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     FM-1 firmware switcher: several firmware packages kept in the browser (a phone's, for the stage), any of
+     them written to the FM-1 over USB MIDI with Felucca's updater (fm1ota.js). It works off line once it has
+     been opened on line (switch_sw.js). tools/make_pages.py inlines fm1pkg.js, fm1ota.js and FoMni-1's package
+     metadata. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1c1816">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<title>FM-1 firmware switcher</title>
+<style>
+  :root { --ground: #faf4e8; --ink: #48392f; --muted: #8a7764; --rule: #e6dccb; --panel: #ece4d4; --accent: #e0683a; color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ground: #1c1816; --ink: #f0e6d6; --muted: #a8988a; --rule: #4a413a; --panel: #2e2824; --accent: #f6865a; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 17px/1.5 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Roboto, Arial, sans-serif; }
+  main { max-width: 560px; margin: 0 auto; padding: 28px 16px 56px; }
+  h1 { font-size: 24px; font-weight: 700; margin: 0 0 6px; text-wrap: balance; }
+  p { margin: 0 0 14px; }
+  .small { color: var(--muted); font-size: 14px; }
+  button { font: inherit; cursor: pointer; }
+  button:disabled { opacity: .35; cursor: default; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #list { display: grid; gap: 10px; margin: 20px 0 14px; padding: 0; list-style: none; }
+  #list li { background: var(--panel); border-radius: 12px; padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+  #list b { font-size: 18px; overflow-wrap: anywhere; }
+  #list .id { grid-column: 1; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+  #list .go { grid-row: 1 / span 2; grid-column: 2; background: var(--accent); color: #fff; border: 0; border-radius: 999px; padding: 12px 22px; font-weight: 600; min-width: 96px; }
+  #list .rm { grid-column: 1 / -1; justify-self: start; background: none; border: 0; padding: 4px 0; color: var(--muted); font-size: 14px; text-decoration: underline; }
+  .add { background: none; color: var(--ink); border: 1px solid var(--rule); border-radius: 999px; padding: 10px 20px; }
+  progress { width: 100%; height: 8px; margin: 18px 0 8px; accent-color: var(--accent); }
+  #status { min-height: 3em; font-weight: 600; }
+  #status.bad { color: var(--accent); }
+  details { margin-top: 18px; }
+  pre { color: var(--muted); font-size: 12px; white-space: pre-wrap; margin: 8px 0 0; max-height: 30vh; overflow: auto; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>FM-1 firmware switcher</h1>
+  <p class="small">Keep several firmwares here and write any of them to the FM-1 over USB. Do not unplug the cable while it writes,
+    and do not switch in the middle of a set: it takes a while, and the FM-1 is silent until it is done.</p>
+
+  <ul id="list"></ul>
+  <button class="add" id="add" type="button">Add a firmware file (.fwsc)</button>
+  <input type="file" id="file" accept=".fwsc,application/octet-stream" hidden>
+
+  <progress id="bar" max="100" value="0"></progress>
+  <p id="status" role="status"></p>
+  <p class="small" id="offline"></p>
+  <p class="small">Installing firmware is at your own risk. If an install is interrupted the FM-1 stays in update mode:
+    plug it in again and press Install again to finish. Each firmware keeps its own settings on the FM-1; switching
+    between different firmwares may reset them.</p>
+  <details><summary class="small">Details</summary><pre id="log"></pre></details>
+</main>
+<script type="module">
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+//
+// FM-1 .fwsc packages in the browser: the package identity and the image the
+// device reads during an update.
+
+const BLOCKS = 20, BLK = 0x30, KEEP = 0x2F;
+
+// the package identity ("FM-1_904"): one marker byte after each of the first 20 blocks
+function productOf(fwsc) {
+  if (fwsc.length < BLOCKS * BLK) throw new Error("not an FM-1 package (too short)");
+  let s = "";
+  for (let i = 0; i < BLOCKS; i++) {
+    const m = fwsc[i * BLK + KEEP];
+    if (m !== 0x7D) s += String.fromCharCode((m - i - 1) & 0xFF);
+  }
+  return s;
+}
+
+// the image the device addresses during an update: the .fwsc without the 20 marker bytes
+function logicalImage(fwsc) {
+  const out = new Uint8Array(fwsc.length - BLOCKS);
+  for (let i = 0; i < BLOCKS; i++) out.set(fwsc.subarray(i * BLK, i * BLK + KEEP), i * KEEP);
+  out.set(fwsc.subarray(BLOCKS * BLK), BLOCKS * KEEP);
+  return out;
+}
+
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
+//
+// The FM-1 USB-MIDI update protocol (M-UPGRADE compatible) over WebMIDI.
+// Step 1: the running firmware reads parts of the package and stages the update
+// loader. Step 2: the loader reads the whole image and writes it. In both steps
+// the device sends cmd 0x30 read requests on the logical image and we answer.
+
+const HS_QUERY = [0xF0, 0x00, 0x32, 0x45, 0x00, 0x00, 0x00, 0x40, 0x7F, 0xF7];
+const UPGRADE = [0xF0, 0x22, 0x24, 0x35, 0x7F, 0xF7];
+const MAXDATA = 512;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const IS_OTA = (id) => /^ota-/i.test(id.model);
+
+// errors carry a code the pages translate: notfound, model, stopped, noloader, lost, noreturn,
+// mismatch (detail: the identity the device reports), badreq
+function fail(code, msg, detail = "") { const e = new Error(msg); e.code = code; e.detail = detail; return e; }
+
+function pack7(data) {
+  const out = []; let acc = 0, nb = 0;
+  for (const b of data) {
+    acc |= b << nb; nb += 8;
+    while (nb >= 7) { out.push(acc & 0x7F); acc >>>= 7; nb -= 7; }
+  }
+  if (nb) out.push(acc & 0x7F);
+  return out;
+}
+
+function unpack7(s) {
+  const out = []; let acc = 0, nb = 0;
+  for (const b of s) {
+    acc |= (b & 0x7F) << nb; nb += 7;
+    while (nb >= 8) { out.push(acc & 0xFF); acc >>>= 8; nb -= 8; }
+  }
+  return out;
+}
+
+function response(addr, data, fl = 0) {
+  const len = data.length;
+  const body = [0x00, 0x59, 0x30, (len + 8) & 0xFF, ((len + 8) >> 8) & 0xFF, 0, fl,
+    addr & 0xFF, (addr >>> 8) & 0xFF, (addr >>> 16) & 0xFF, (addr >>> 24) & 0xFF,
+    len & 0xFF, (len >> 8) & 0xFF, 0, ...data];
+  let s = 0;
+  for (let i = 6; i < body.length; i++) s += body[i];
+  body.push(~s & 0xFF);
+  return [0xF0, ...pack7(body), 0xF7];
+}
+
+function parseRequest(pkt) {
+  if (pkt[0] !== 0xF0 || pkt[pkt.length - 1] !== 0xF7) return null;
+  const u = unpack7(pkt.slice(1, -1));
+  if (u.length !== 15 || u[0] !== 0 || u[1] !== 0x59 || u[2] !== 0x30) return null;
+  let s = 0;
+  for (let i = 6; i < 14; i++) s += u[i];
+  if ((~s & 0xFF) !== u[14]) return null;
+  return { fl: u[6], addr: (u[7] | (u[8] << 8) | (u[9] << 16) | (u[10] << 24)) >>> 0, len: u[11] | (u[12] << 8) | (u[13] << 16) };
+}
+
+function parseIdentity(pkt) {
+  const d = unpack7(pkt.slice(1, -1));
+  if (d.length !== 34 || d[0] !== 0 || d[1] !== 0x59 || d[2] !== 0x11) return null;
+  const txt = String.fromCharCode(...d.slice(6, 33)).replace(/\0+$/, "");
+  const m = /^([^_]+)_(\d+)$/.exec(txt);
+  return m ? { text: txt, model: m[1], version: parseInt(m[2], 10) } : null;
+}
+
+// one MIDI in/out pair with a SysEx queue
+class Link {
+  constructor(input, output) {
+    this.input = input; this.output = output; this.q = []; this.waiter = null;
+    input.onmidimessage = (ev) => {
+      if (ev.data[0] !== 0xF0) return;
+      this.q.push(Array.from(ev.data));
+      if (this.waiter) { const w = this.waiter; this.waiter = null; w(); }
+    };
+  }
+  get lost() { return this.input.state === "disconnected" || this.output.state === "disconnected"; }
+  // false when the port is gone (unplugged): WebMIDI throws on a disconnected output
+  send(bytes) {
+    try { this.output.send(bytes); return true; } catch (_) { return false; }
+  }
+  drain() { this.q.length = 0; }
+  async read(ms) {
+    if (!this.q.length) {
+      let tm;
+      await Promise.race([new Promise((r) => { this.waiter = r; }), new Promise((r) => { tm = setTimeout(r, ms); })]);
+      clearTimeout(tm);
+      this.waiter = null;
+    }
+    return this.q.shift() || null;
+  }
+  close() { this.input.onmidimessage = null; }
+}
+
+async function handshake(link, tries = 3) {
+  link.drain();
+  for (let t = 0; t < tries; t++) {
+    if (!link.send(HS_QUERY)) return null;
+    const end = Date.now() + 1000;
+    while (Date.now() < end) {
+      const p = await link.read(end - Date.now());
+      if (!p) break;
+      const id = parseIdentity(p);
+      if (id) return id;
+    }
+  }
+  return null;
+}
+
+class Updater {
+  constructor(access, log) {
+    this.access = access;
+    this.log = log || (() => {});
+  }
+
+  // every in/out pair with the same port name that answers the handshake
+  async find(filter) {
+    const outs = [...this.access.outputs.values()];
+    for (const input of this.access.inputs.values()) {
+      if (input.state === "disconnected") continue;
+      if (!/fm-1|felucca|ota|composite|sinco|usb-midi/i.test(input.name || "")) continue;   // never probe other gear
+      const output = outs.find((o) => o.name === input.name) || (outs.length === 1 ? outs[0] : null);
+      if (!output) continue;
+      try { await input.open(); await output.open(); } catch (_) { continue; }
+      const link = new Link(input, output);
+      const id = await handshake(link, 2);
+      if (id && (!filter || filter(id))) return { link, id, name: input.name };
+      link.close();
+    }
+    return null;
+  }
+
+  async waitFor(filter, ms) {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      const dev = await this.find(filter);
+      if (dev) return dev;
+      await sleep(1000);
+    }
+    return null;
+  }
+
+  // serve read requests until the device asks for one of the finish addresses; stops early
+  // when the port disappears (lost: true) instead of waiting out idleMs
+  async serve(link, image, finishAddr, idleMs, onProgress) {
+    let served = 0, last = Date.now();
+    for (;;) {
+      const pkt = await link.read(1000);
+      if (!pkt) {
+        if (link.lost) return { served, finished: false, lost: true };
+        if (Date.now() - last > idleMs) return { served, finished: false };
+        continue;
+      }
+      const r = parseRequest(pkt);
+      if (!r) continue;
+      last = Date.now();
+      if (r.addr === 0xE0000000 || r.addr === 0xF0000000) {
+        link.send(response(r.addr, [...new TextEncoder().encode("success"), 0]));
+        if (r.addr === finishAddr) return { served, finished: true };
+        continue;
+      }
+      if (r.len > MAXDATA || r.addr + r.len > image.length) throw fail("badreq", `bad request ${r.addr.toString(16)}+${r.len}`);
+      await sleep(10);
+      if (!link.send(response(r.addr, Array.from(image.subarray(r.addr, r.addr + r.len)), r.fl))) {
+        return { served, finished: false, lost: true };
+      }
+      served++;
+      if (onProgress) onProgress(served, r.addr);
+    }
+  }
+
+  // full install: running firmware -> loader -> new firmware
+  async install(image, product, onStep) {
+    const step = onStep || (() => {});
+    const dev = await this.find((id) => !IS_OTA(id));
+    if (!dev) throw fail("notfound", "FM-1 not found (USB cable, and no other app using it?)");
+    const [model] = product.split("_");
+    if (dev.id.model !== model) { dev.link.close(); throw fail("model", `the device is ${dev.id.text}, the package is for ${product}`); }
+    step("start", dev.id.text);
+    dev.link.send(UPGRADE);
+    await sleep(2000);
+    const s1 = await this.serve(dev.link, image, 0xE0000000, 8000, (n) => step("verify", n));
+    dev.link.close();
+    if (!s1.finished) throw fail(s1.lost ? "lost" : "stopped", `the device ${s1.lost ? "was disconnected" : "stopped"} after ${s1.served} requests: nothing was written`);
+    step("loader");
+    await sleep(3000);
+    const ota = await this.waitFor(IS_OTA, 30000);
+    if (!ota) throw fail("noloader", "the update loader did not appear. Replug the USB cable and press Install again: the device stays in update mode until it is finished.");
+    const s2 = await this.write(ota, image, step);
+    if (!s2.finished) throw fail(s2.lost ? "lost" : "stopped", `the loader ${s2.lost ? "was disconnected" : "stopped"} after ${s2.served} requests. Replug and press Install again to resume.`);
+    step("reboot");
+    await sleep(3000);
+    const back = await this.waitFor((id) => !IS_OTA(id), 40000);
+    if (!back) throw fail("noreturn", "the device did not come back: power-cycle it");
+    back.link.close();
+    if (back.id.text !== product) throw fail("mismatch", `installed, but the device reports ${back.id.text}`, back.id.text);
+    step("done", back.id.text);
+    return back.id.text;
+  }
+
+  // step 2 with the loader found by find()/waitFor()
+  async write(ota, image, step) {
+    ota.link.send(UPGRADE);
+    await sleep(2000);
+    const s2 = await this.serve(ota.link, image, 0xF0000000, 180000, (n) => step("write", n));
+    ota.link.close();
+    return s2;
+  }
+
+  // resume: the device is already in update mode (loader) -> true when the write finished
+  async resume(image, onStep) {
+    const ota = await this.find(IS_OTA);
+    if (!ota) return false;
+    return (await this.write(ota, image, onStep || (() => {}))).finished;
+  }
+}
+
+const $ = (id) => document.getElementById(id);
+const meta = {"version": "0.4", "product": "FM-1_8000400", "pkg": "../firmware/omni-0.4.fwsc"};                              // FoMni-1's own package: { version, product, pkg }
+const MODEL = /^FM-1_\d+$/;                          // a package for the FM-1 (the stock firmware is FM-1_015)
+let items = [];                                      // { id (stored ones), name, product, bytes, own }
+let writing = false, db = null;
+
+function say(text, bad) {
+  $("status").textContent = text;
+  $("status").classList.toggle("bad", !!bad);
+}
+const log = (t) => { $("log").textContent += t + "\n"; };
+
+// ---- the firmwares added here: kept in this browser (IndexedDB)
+function request(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function openDb() {
+  const r = indexedDB.open("fm1-switch", 1);
+  r.onupgradeneeded = () => r.result.createObjectStore("fw", { keyPath: "id", autoIncrement: true });
+  return request(r);
+}
+const store = (mode) => db.transaction("fw", mode).objectStore("fw");
+
+function draw() {
+  const list = $("list");
+  list.textContent = "";
+  for (const it of items) {
+    const li = document.createElement("li");
+    const name = document.createElement("b");
+    name.textContent = it.name;
+    const id = document.createElement("span");
+    id.className = "id";
+    id.textContent = `${it.product} · ${Math.round(it.bytes.length / 1024)} KB`;
+    const go = document.createElement("button");
+    go.type = "button";
+    go.className = "go";
+    go.textContent = "Install";
+    go.disabled = writing;
+    go.onclick = () => install(it);
+    li.append(name, go, id);
+    if (!it.own) {
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "rm";
+      rm.textContent = "Remove from this list";
+      rm.disabled = writing;
+      rm.onclick = async () => {
+        if (!confirm(`Remove ${it.name} from this list? (The FM-1 is not touched.)`)) return;
+        try { if (db && it.id !== undefined) await request(store("readwrite").delete(it.id)); } catch {}
+        items = items.filter((x) => x !== it);
+        draw();
+      };
+      li.append(rm);
+    }
+    list.append(li);
+  }
+  $("add").disabled = writing;
+}
+
+$("add").onclick = () => $("file").click();
+$("file").onchange = async () => {
+  const f = $("file").files[0];
+  $("file").value = "";
+  if (!f) return;
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const product = productOf(bytes);
+    if (!MODEL.test(product)) throw new Error("it is not a firmware package for the FM-1");
+    const it = { name: f.name.replace(/\.fwsc$/i, ""), product, bytes };
+    if (db) it.id = await request(store("readwrite").add({ name: it.name, product, bytes }));
+    items.push(it);
+    draw();
+    say(db ? `${it.name} added. It stays in this browser.` : `${it.name} added, until this page is closed (this browser keeps no files).`);
+  } catch (e) { say(`${f.name}: ${e.message}.`, true); }
+};
+
+// ---- writing one
+window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault(); e.returnValue = "The FM-1 is being written."; } });
+
+async function install(it) {
+  if (writing) return;
+  if (!navigator.requestMIDIAccess) { say("This browser has no Web MIDI. Use Chrome or Edge.", true); return; }
+  if (!confirm(`Write ${it.name} (${it.product}) to the FM-1?`)) return;
+  let midi, lock = null;
+  try { midi = await navigator.requestMIDIAccess({ sysex: true }); }
+  catch { say("The browser did not allow MIDI (SysEx) for this page.", true); return; }
+  writing = true;
+  draw();
+  $("bar").value = 0;
+  try { lock = await navigator.wakeLock.request("screen"); } catch {}      // the screen stays on: a sleeping phone stops the write
+  const image = logicalImage(it.bytes), blocks = Math.ceil(image.length / 512);
+  const step = (k, a) => {
+    log(`${k} ${a ?? ""}`);
+    if (k === "start") say(`Found ${a}. Starting...`);
+    if (k === "verify") { say("The FM-1 is checking the package..."); $("bar").value = Math.min(6, a / 12); }
+    if (k === "loader") say("Waiting for the FM-1's update mode...");
+    if (k === "write") { say("Writing. Do not unplug the cable."); $("bar").value = 6 + 94 * Math.min(1, a / blocks); }
+    if (k === "reboot") say("Written. The FM-1 is restarting...");
+    if (k === "done") { $("bar").value = 100; say(`Done: the FM-1 runs ${it.name} (${a}).`); }
+  };
+  try {
+    const up = new Updater(midi, log);
+    const ota = await up.find((id) => /^ota-/i.test(id.model));
+    if (ota) {                                       // an install was interrupted: finish it with this firmware
+      ota.link.close();
+      if (await up.resume(image, step)) { $("bar").value = 100; say(`Done: ${it.name} is written. The FM-1 restarts.`); }
+      else say("The FM-1 stopped. Plug it in again and press Install again.", true);
+    } else {
+      await up.install(image, it.product, step);
+    }
+  } catch (e) {
+    log(String(e && e.stack || e));
+    if (e && e.code === "mismatch") { $("bar").value = 100; say(`Done: ${it.name} is written. The FM-1 names itself ${e.detail}.`); }
+    else say((e && e.message) || "It did not work.", true);
+  }
+  try { if (lock) await lock.release(); } catch {}
+  writing = false;
+  draw();
+}
+
+// ---- start: FoMni-1's own package (kept off line with the page), then the ones added before
+(async () => {
+  try {
+    const r = await fetch(meta.pkg);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (productOf(bytes) !== meta.product) throw new Error("the file is damaged");
+    items.push({ name: `FoMni-1 ${meta.version}`, product: meta.product, bytes, own: true });
+  } catch (e) { say(`FoMni-1's own package could not be read (${e.message}).`, true); }
+  try {
+    db = await openDb();
+    for (const row of await request(store("readonly").getAll())) items.push({ id: row.id, name: row.name, product: row.product, bytes: row.bytes });
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();   // ask the browser not to clear them
+  } catch { db = null; }
+  draw();
+  if (!navigator.requestMIDIAccess) say("This browser has no Web MIDI. Use Chrome or Edge.", true);
+  if ("serviceWorker" in navigator) {
+    try {
+      await navigator.serviceWorker.register("sw.js");
+      await navigator.serviceWorker.ready;
+      $("offline").textContent = "This page and FoMni-1's package are kept on this device: it works without a network.";
+    } catch { $("offline").textContent = "This browser did not keep the page for use without a network."; }
+  }
+})();
+</script>
+</body>
+</html>
