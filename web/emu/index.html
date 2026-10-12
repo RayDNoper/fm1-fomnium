@@ -411,8 +411,12 @@ async function switchOn() {
   go.textContent = "Starting...";
   try {
     const ac = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
-    const [wasm] = await Promise.all([fetch("omni.wasm").then((r) => { if (!r.ok) throw new Error(`omni.wasm: ${r.status}`); return r.arrayBuffer(); }),
-                                      ac.audioWorklet.addModule("worklet.js")]);
+    // always the firmware that is on the server now, not one the browser kept (it is fetched on this click,
+    // where a reload of the page does not reach); the worklet goes by the same stamp
+    const res = await fetch("omni.wasm", { cache: "no-cache" });
+    if (!res.ok) throw new Error(`omni.wasm: ${res.status}`);
+    const stamp = res.headers.get("etag") || res.headers.get("last-modified") || "";
+    const [wasm] = await Promise.all([res.arrayBuffer(), ac.audioWorklet.addModule("worklet.js?v=" + encodeURIComponent(stamp))]);
     node = new AudioWorkletNode(ac, "omni", { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
     node.connect(ac.destination);
     const ready = new Promise((res) => {
