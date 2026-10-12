@@ -97,9 +97,12 @@ extern volatile uint8_t om_ext;                /* 1: following an external MIDI 
 /* the plate as a scale. Fixed: each white key its own note, F3..G5 in C (transpose moves the key).
  * Of the chord: its type's seven notes (OM_TYPE_SCALE) up from its root, C3..B3, two octaves and two more;
  * shift moves that along the keys by steps of the scale (-1: the first key plays the note under the root) */
-enum { PL_TRIAD, PL_FIXED, PL_CHORD, PL_NMODES };
+enum { PL_TRIAD, PL_FIXED, PL_CHORD, PL_LINEAR, PL_NMODES };     /* (saved: new ones go last) */
 extern const int8_t OM_TYPE_SCALE[CH_NTYPES][7];
 void om_scale(int transpose, int octave, uint8_t harp[OM_NSTR]);
+/* the chord's tones straight up the keys (PL_LINEAR): five octaves of them from its root in C2..B2, two
+ * below the middle one and two above, and a root on top; no folding, so every key is higher than the last */
+void om_linear(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR]);
 void om_chord_scale(int root, int type, int transpose, int octave, int shift, uint8_t harp[OM_NSTR]);
 void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR], uint8_t chord[OM_NCHORD],
                 uint8_t *bass);

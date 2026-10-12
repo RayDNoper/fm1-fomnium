@@ -60,6 +60,21 @@ int main(void)
     check("the plate as a scale: the white keys' own notes, F3..G5", h[0] == 53 && h[3] == 59 && h[4] == 60 && h[15] == 79);
     om_scale(2, 1, h);
     check("... transpose +2, octave +1: D major, an octave up", h[4] == 74 && h[3] == 73);
+    {
+        static const uint8_t C_LIN[16] = {36, 40, 43, 48, 52, 55, 60, 64, 67, 72, 76, 79, 84, 88, 91, 96};
+        int i, t, k, up = 1;
+        om_linear(0, CH_MAJ, 0, 0, h);
+        check("the chord straight up the keys: C major, C2 to C7, the middle group at C4", !memcmp(h, C_LIN, 16));
+        om_linear(11, CH_ADD9, 0, 1, h);
+        check("... B add9, an octave up: B3 C#4 Eb4, the top B8", h[0] == 59 && h[1] == 61 && h[2] == 63 && h[15] == 119);
+        for (i = 0; i < 12; i++)
+            for (t = 0; t < CH_NTYPES; t++) {
+                om_linear(i, t, 0, 0, h);
+                for (k = 1; k < 16; k++)
+                    up &= h[k] > h[k - 1];
+            }
+        check("... every chord: each key higher than the last", up);
+    }
     om_chord_scale(9, CH_MIN, 0, 0, 0, h);
     check("the chord's scale: A minor up from A3", h[0] == 57 && h[2] == 60 && h[7] == 69 && h[15] == 83);
     om_chord_scale(7, CH_7, 0, 0, 0, h);

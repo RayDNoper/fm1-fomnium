@@ -28,11 +28,22 @@ release LFO
 expect strnote0 53
 expect strnote1 45
 expect strnote2 51
-# Strings (Setup, KNOB 1). Fixed: each white key its own note (F3..G5), whatever the chord
+# Strings (Setup, KNOB 1): Triads, Linear, Fixed, Relative
 tap GLO
 # (Shift, KNOB 2, is for Relative only)
 spin K2 2
 expect shift 0
+# Linear: the chord's tones straight up, five octaves from its root in C2..B2. F7: F2 A2 Eb3, F3 ... F7
+spin K1 1
+wait 50
+expect plate 3
+expect strnote0 41
+expect strnote1 45
+expect strnote2 51
+expect strnote3 53
+expect strnote15 101
+shot linear.png
+# Fixed: each white key its own note (F3..G5), whatever the chord
 spin K1 1
 wait 50
 expect plate 1
@@ -66,7 +77,7 @@ spin K2 6
 wait 50
 expect shift 0
 expect strnote0 57
-spin K1 -2
+spin K1 -3
 wait 50
 expect plate 0
 expect strnote1 48

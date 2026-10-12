@@ -24,6 +24,10 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
 };
 
+/* Strings, in the knob's order (the saved numbers are PL_*) */
+static const uint8_t PLATE_ORDER[PL_NMODES] = {PL_TRIAD, PL_LINEAR, PL_FIXED, PL_CHORD};
+static const char *const PLATE_NAME[PL_NMODES] = {"Triads", "Linear", "Fixed", "Relative"};
+
 static const uint8_t WHITE_K[OM_NSTR] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t BLACK_K[NPADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 
@@ -132,8 +136,12 @@ static int knob_get(int k)
         return proj.pad_type[proj.set][ui.pad_sel];
     if (k == K_LEDS)
         return proj.leds;
-    if (k == K_PLATE)
-        return proj.plate;
+    if (k == K_PLATE) {
+        int i = 0;
+        while (i < PL_NMODES - 1 && PLATE_ORDER[i] != proj.plate)
+            i++;
+        return i;
+    }
     if (k == K_SHIFT)                            /* the Relative scale's place on the keys: only then */
         return proj.plate == PL_CHORD ? proj.shift : 0;
     if (k == K_DARK)
@@ -202,8 +210,8 @@ static void knob_text(int k, char *b)
         const char *n = v ? "On" : "Off";
         while ((*b++ = *n++))
             ;
-    } else if (k == K_PLATE) {                   /* the chord's tones (the OM's plate), the keys' own notes, */
-        const char *n = v == PL_CHORD ? "Relative" : v ? "Fixed" : "Triads";   /* the chord's scale */
+    } else if (k == K_PLATE) {                   /* the chord's tones (folded, the OM's plate; or straight up), */
+        const char *n = PLATE_NAME[v];           /* the keys' own notes, the chord's scale */
         while ((*b++ = *n++))
             ;
     } else {
@@ -235,8 +243,8 @@ static void knob_set(int k, int v)
     } else if (k == K_LEDS) {
         proj.leds = (uint8_t)v;
     } else if (k == K_PLATE) {
-        proj.plate = (uint8_t)v;
-        om_plate(v, proj.shift);
+        proj.plate = PLATE_ORDER[v];
+        om_plate(proj.plate, proj.shift);
     } else if (k == K_SHIFT) {
         proj.shift = (int8_t)v;
         om_plate(proj.plate, v);
@@ -755,7 +763,7 @@ static void draw_main(void)
         x = 240 - 12 - text_w(&FONT_XS, notes);
         cv_text(x, 1, &FONT_XS, notes, K_CHORD);
         if (proj.plate) {
-            const char *m = proj.plate == PL_CHORD ? "REL SCALE" : "SCALE";
+            const char *m = proj.plate == PL_CHORD ? "REL SCALE" : proj.plate == PL_LINEAR ? "LINEAR" : "SCALE";
             cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, K_HARP);
         }
     }

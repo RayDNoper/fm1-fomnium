@@ -88,6 +88,18 @@ void om_scale(int transpose, int octave, uint8_t harp[OM_NSTR])
         harp[i] = (uint8_t)(53 + WHITE[i] + transpose + 12 * octave);
 }
 
+void om_linear(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR])
+{
+    const int8_t *t = OM_TYPE_TONES[(unsigned)type < CH_NTYPES ? type : 0];
+    int base = fold(root + transpose, 36 + 12 * octave), lo = t[1] < t[2] ? t[1] : t[2], hi = t[1] < t[2] ? t[2] : t[1], k;
+    for (k = 0; k < 5; k++) {                     /* (add9's third tone is its 9th, under its third) */
+        harp[3 * k] = (uint8_t)(base + 12 * k);
+        harp[3 * k + 1] = (uint8_t)(base + 12 * k + lo);
+        harp[3 * k + 2] = (uint8_t)(base + 12 * k + hi);
+    }
+    harp[15] = (uint8_t)(base + 60);
+}
+
 void om_chord_scale(int root, int type, int transpose, int octave, int shift, uint8_t harp[OM_NSTR])
 {
     const int8_t *sc = OM_TYPE_SCALE[(unsigned)type < CH_NTYPES ? type : 0];
@@ -362,6 +374,8 @@ static void retune(void)
     om_voicing(root, type, par[P_TRANSPOSE], par[P_OCTAVE], harp_n, chord_n, &bass_n);
     if (plate == PL_FIXED)
         om_scale(par[P_TRANSPOSE], par[P_OCTAVE], harp_n);
+    else if (plate == PL_LINEAR)
+        om_linear(root, type, par[P_TRANSPOSE], par[P_OCTAVE], harp_n);
     else if (plate == PL_CHORD)
         om_chord_scale(root, type, par[P_TRANSPOSE], par[P_OCTAVE], plate_shift, harp_n);
     for (i = 0; i < OM_NSTR; i++)                 /* what each string plays when plucked next */
