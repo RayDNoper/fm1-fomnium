@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// The firmware switcher off line: its page and FoMni-1's package are kept, and served from here first.
+// The firmware switcher off line: its page and Jambox FM-1's package are kept, and served from here first.
 // tools/make_pages.py fills in the version (it changes when the page or the package does) and the list.
 const CACHE = "fm1-switch-/*VER*/";
 const KEEP = /*KEEP*/;

@@ -58,7 +58,10 @@ static int project_valid(void)
         proj.seq_on = 0;
         memset(proj.rsv, 0, sizeof proj.rsv);
         proj.seq_trk = 0;
+        proj.bass = 0;
         memset(proj.seq, 0, sizeof proj.seq);
+        memset(proj.pad_inv, 0, sizeof proj.pad_inv);
+        memset(proj.rhy, 0, sizeof proj.rhy);
     }
     proj.format = PROJ_FORMAT;
     for (i = 0; i < P_NPARAMS; i++) {
@@ -73,9 +76,16 @@ static int project_valid(void)
     for (s = 0; s < NTRK; s++)
         for (i = 0; i < NSEQ; i++)
             if ((proj.seq[s][i][0] & 15u) > 11u || proj.seq[s][i][0] >> 4 >= CH_NTYPES ||
-                proj.seq[s][i][1] > OM_SEQ_BEATS)
+                (proj.seq[s][i][1] & 63u) > OM_SEQ_BEATS)
                 return 0;
-    if (proj.seq_on > 1u || proj.seq_trk >= NTRK)
+    for (s = 0; s < NSETS; s++)
+        for (i = 0; i < NPADS; i++)
+            if (proj.pad_inv[s][i] >= INV_N)
+                return 0;
+    for (s = 0; s < OM_NURHY; s++)
+        if (!om_rhythm_ok(proj.rhy[s]))
+            return 0;
+    if (proj.seq_on > 1u || proj.seq_trk >= NTRK || proj.bass < -50 || proj.bass > 50)
         return 0;
     return proj.set < NSETS && proj.plate < PL_NMODES && proj.dark <= 1u && proj.voice < OM_NVOICES && proj.cvoice < OM_NCVOICES &&
            proj.shift >= -6 && proj.shift <= 6;
@@ -104,6 +114,9 @@ void project_apply(void)
     om_plate(proj.plate, proj.shift);
     om_voice(proj.voice);
     om_cvoice(proj.cvoice);
+    om_bass(proj.bass + 50);
+    for (i = 0; i < OM_NURHY; i++)
+        om_rhythm_user(i, proj.rhy[i]);
     om_seq_tab = proj.seq;
     om_seq(proj.seq_on, seq_key());
     om_seq_track(proj.seq_trk);

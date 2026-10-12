@@ -31,11 +31,14 @@ typedef struct {
     int8_t shift;                        /* Relative strings: the scale moved along the keys, -6..6 steps */
     uint8_t seq_on;                      /* the chord sequence plays with the rhythm (REC) */
     uint8_t seq_trk;                     /* its track in use */
-    uint8_t rsv[5];                      /* room to grow: an older, shorter project loads (zeros here) */
-    /* the chord sequence's tracks: each step a chord (root | type << 4) and its beats, 0: the track ends
-     * before it. The roots are counted from the chord set's key (seq_key), so another set (PRESETS) plays
+    int8_t bass;                         /* the bass's level against the chord, -50 (none) .. 0 (as it comes) .. 50 */
+    uint8_t rsv[4];                      /* room to grow: an older, shorter project loads (zeros here) */
+    /* the chord sequence's tracks: each step a chord (root | type << 4) and its beats (| INV_* << 6), 0: the
+     * track ends before it. The roots are counted from the chord set's key (seq_key), so another set (PRESETS) plays
      * the sequence in its key */
     uint8_t seq[NTRK][NSEQ][2];
+    uint8_t pad_inv[NSETS][NPADS];       /* how each button's chord lies: INV_* (a step: its beats' top bits) */
+    uint8_t rhy[OM_NURHY][OM_RHY_BYTES]; /* the player's own rhythms (omni.h; the editor writes them) */
 } project_t;
 
 extern project_t proj;

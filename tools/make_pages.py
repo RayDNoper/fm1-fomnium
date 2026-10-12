@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Make the FoMni-1 site for GitHub Pages (https://raydnoper.github.io/fm1-fomnium/):
+"""Make the Jambox FM-1 site for GitHub Pages (https://raydnoper.github.io/fm1-fomnium/):
 
-  index.html                    what FoMni-1 is, how it plays, and the ways in: try, install, download, source
+  index.html                    what Jambox FM-1 is, how it plays, and the ways in: try, install, download, source
   img/                          screenshots (docs/img)
-  emu/                          FoMni-1 in the browser (build/emu, from web/emu/build.sh)
+  emu/                          Jambox FM-1 in the browser (build/emu, from web/emu/build.sh)
   install/index.html            the web installer (web/omni_installer.html, with fm1pkg.js, fm1ota.js and
                                 the package's metadata inlined; Chrome or Edge, Web MIDI)
-  editor/index.html             the chord set editor (web/omni_editor.html, with fomni_ed.js inlined; it talks
+  editor/index.html             the editor of chord sets and rhythms (web/omni_editor.html, with fomni_ed.js inlined; it talks
                                 to the FM-1 over Web MIDI, or to emu/ in another tab)
   switch/                       the firmware switcher (web/omni_switch.html: several packages kept in the browser,
                                 any of them installed; with switch_sw.js it works off line, as an app on a phone)
@@ -36,7 +36,7 @@ LANDING = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FoMni-1</title>
+<title>Jambox FM-1</title>
 <meta name="description" content="A chord harp for the M-VAVE FM-1, inspired by the Suzuki Omnichord: strum the white keys, pick chords on the black ones.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -77,22 +77,22 @@ ul.pages b { color: var(--teal); }
 </head>
 <body>
 <main>
-<h1>FoMni-1</h1>
-<div class="video"><iframe src="https://www.youtube-nocookie.com/embed/pahaM6nzucE" title="FoMni-1 running on the FM-1"
+<h1>Jambox FM-1</h1>
+<div class="video"><iframe src="https://www.youtube-nocookie.com/embed/pahaM6nzucE" title="FoMni-1, which Jambox FM-1 is forked from, running on the FM-1"
   allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
 <p class="lede">A chord harp for the M-VAVE FM-1, inspired by the Suzuki Omnichord. Pick a chord on the black
 keys, run a finger across the white keys, and it rings out. Behind it are an organ-like chord, a bass, and the
 OM-84's ten rhythms and a reggae one, which can play the bass and chord in time.</p>
 <div class="shots">
-  <img src="img/screen-strum.png" width="240" height="240" alt="FoMni-1's screen: the chord C, sixteen strings ringing, the chord buttons below">
-  <img src="img/screen-chord.png" width="240" height="240" alt="FoMni-1's screen: A minor held">
-  <img src="img/screen-rhythm.png" width="240" height="240" alt="FoMni-1's rhythm page: the Rock 1 pattern">
+  <img src="img/screen-strum.png" width="240" height="240" alt="Jambox FM-1's screen: the chord C, sixteen strings ringing, the chord buttons below">
+  <img src="img/screen-chord.png" width="240" height="240" alt="Jambox FM-1's screen: A minor held">
+  <img src="img/screen-rhythm.png" width="240" height="240" alt="Jambox FM-1's rhythm page: the Rock 1 pattern">
 </div>
 <div class="status"><strong>Version __VERSION__.</strong> It installs and
 uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own firmware back. Installing is at your own risk.</div>
-<nav class="ways" aria-label="Get FoMni-1">
+<nav class="ways" aria-label="Get Jambox FM-1">
   <a href="emu/"><strong>Try it in the browser</strong><span>The same code the FM-1 runs, with sound. Drag across the white keys to strum; no FM-1 needed.</span></a>
-  <a href="editor/"><strong>Chord set editor</strong><span>The chords on the black keys, eight sets of them, edited from the browser with the FM-1 connected by USB. It works with the emulator too.</span></a>
+  <a href="editor/"><strong>Editor</strong><span>The chords on the black keys, eight sets of them, and rhythms of your own on a step grid, edited from the browser with the FM-1 connected by USB. It works with the emulator too.</span></a>
   <a href="install/"><strong>Install</strong><span>From Chrome or Edge, with the FM-1 connected by USB. Nothing to install on the computer.</span></a>
   <a href="switch/"><strong>Firmware switcher</strong><span>For the stage: keep several FM-1 firmwares on a phone or laptop and write any of them over USB. It works without a network once opened.</span></a>
   <a href="firmware/__PKG__"><strong>Download __PKG__</strong><span>For the command-line installer: <code>python3 tools/fm1_install.py __PKG__</code></span></a>
@@ -107,10 +107,10 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
 <tr><td>ARP</td><td>Chord hold: the chord keeps going after you let go.</td></tr>
 <tr><td>OCT− · OCT+</td><td>Move the strum plate an octave.</td></tr>
 <tr><td>SELECT</td><td>Tempo.</td></tr>
-<tr><td>ALGORITHM</td><td>Rhythm.</td></tr>
+<tr><td>ALGORITHM</td><td>Rhythm: the eleven it comes with, then your own (made in the editor).</td></tr>
 <tr><td>PRESETS</td><td>Chord set, 1 to 8: what the black keys play. As they come, the sets are the same buttons in C, G, D, A, E, F, Bb and Eb.</td></tr>
 <tr><td>KNOB 1–4</td><td>The four values on the screen (see the pages below).</td></tr>
-<tr><td>SAVE</td><td>Saves. FoMni-1 also saves by itself a few seconds after a change, once it's quiet.</td></tr>
+<tr><td>SAVE</td><td>Saves. Jambox FM-1 also saves by itself a few seconds after a change, once it's quiet.</td></tr>
 </table>
 
 <h2>The pages</h2>
@@ -119,8 +119,8 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
   <li><b>HOME: Play.</b> Voice 1, Voice 2, Sustain, Chord level.</li>
   <li><b>SEQ: Rhythm.</b> Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).</li>
   <li><b>FX: Sound.</b> Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.</li>
-  <li><b>SEL: Chords.</b> Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 and 4 are Transpose (−6 to +6) and Octave.</li>
-  <li><b>GLO: Setup.</b> Strings (Triads: the white keys play the chord's tones, folded into one octave a group as on the Omnichord; Linear: the same tones straight up the keys, five octaves from two below the middle to two above, each key higher than the last; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Shift (with Relative: the scale moved along the keys, −6 to +6 of its steps, for a melody that sits elsewhere than from the root up), Tune, MIDI out. Press GLO again for <b>Setup 2</b>: Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off), Dark (the screen in dark colours), Harp and Chord (the voice of the strings and of the chord: the Omnichord's, or an FM sound). And once more for <b>Setup 3</b>: Sync start (the rhythm waits for your first chord).</li>
+  <li><b>SEL: Chords.</b> Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 is Transpose (−6 to +6). KNOB 4, Invert, is how that button's chord lies: OM, as the Omnichord has it (its notes folded into one fixed octave, the root in the bass); Root, root position; 1st and 2nd, the inversions, with their bottom note in the bass too (C/E, C/G). Dots under a chord's name show it. (OCT− and OCT+ still move the strum plate's octave.)</li>
+  <li><b>GLO: Setup.</b> Strings (Triads: the white keys play the chord's tones, folded into one octave a group as on the Omnichord; Linear: the same tones straight up the keys, five octaves from two below the middle to two above, each key higher than the last; Fixed: their own notes, a scale; Relative: the scale of the chord that is playing), Shift (with Relative: the scale moved along the keys, −6 to +6 of its steps, for a melody that sits elsewhere than from the root up), Tune, MIDI out. Press GLO again for <b>Setup 2</b>: Lights (On: the key lights, and the unlit buttons glow dimly so they can be read; Keys: the key lights only; Off), Dark (the screen in dark colours), Harp and Chord (the voice of the strings and of the chord: the Omnichord's, or an FM sound). And once more for <b>Setup 3</b>: Sync start (the rhythm waits for your first chord) and Bass (the bass against the chord: 50 as it comes, 0 none, 100 twice as loud).</li>
   <li><b>REC: Sequence.</b> A chord sequence: eight tracks of up to 32 steps, each step a chord for a number of beats. The track in use plays round while the rhythm runs; hold REC and press one of the first eight chord buttons for another, which starts when the one playing comes round. With the rhythm stopped, press chord buttons one after another: each writes a step. KNOB 1 picks a step, KNOB 2 and 3 change its Root and Type, KNOB 4 its Beats (turned down to End, the sequence ends before that step). The rhythm and tempo can change as it plays. PRESETS plays the same sequence in the key of another chord set. REC again on this page switches the sequence off.</li>
 </ul>
 <h2>MIDI</h2>
@@ -134,7 +134,8 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
 <p class="small">To go back to the official
 firmware, use the installer's "Back to the stock firmware", or M-VAVE's updater, M-UPGRADE, from
 <a href="https://www.m-vave.com/download">m-vave.com/download</a>. Omnichord is a trademark of Suzuki; M-VAVE and FM-1 are
-trademarks of their owners. FoMni-1 is not affiliated with any of them.</p>
+trademarks of their owners. Jambox FM-1 is not affiliated with any of them.</p>
+<p class="small">Jambox FM-1 is inspired by and forked from <a href="https://github.com/charlesvestal/fm1-fomni">FoMni-1</a>.</p>
 </main>
 </body>
 </html>

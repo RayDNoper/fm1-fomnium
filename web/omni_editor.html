@@ -1,13 +1,13 @@
 <!doctype html>
 <!-- SPDX-License-Identifier: GPL-3.0-only
-     FoMni-1's chord set editor: the eight chord sets of the black keys, read from and written to the FM-1
-     over USB MIDI (SysEx; web/EDITOR_PROTOCOL.md), or to the emulator open in another tab.
+     Jambox FM-1's editor: the eight chord sets of the black keys and the player's own rhythms, read from and
+     written to the FM-1 over USB MIDI (SysEx; web/EDITOR_PROTOCOL.md), or to the emulator open in another tab.
      tools/make_pages.py inlines fomni_ed.js. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FoMni-1 chord sets</title>
+<title>Jambox FM-1 editor</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600&family=Barlow+Semi+Condensed:wght@600;700&display=swap">
@@ -60,14 +60,41 @@
                     font: 600 15px "Barlow Semi Condensed", sans-serif; }
   .choices button[aria-pressed="true"] { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
   .small { color: var(--muted); font-size: 14px; max-width: 64ch; }
+  .tabs { display: flex; gap: 6px; margin: 0 0 16px; border-bottom: 1px solid var(--rule); }
+  .tabs button { border: 0; background: none; padding: 8px 14px; font: 600 17px "Barlow Semi Condensed", sans-serif; color: var(--muted);
+                 border-bottom: 3px solid transparent; margin-bottom: -1px; }
+  .tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+
+  .rlist { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 8px; }
+  .rlist button { height: 34px; padding: 0 11px; border: 1px solid var(--rule); border-radius: 8px; background: var(--ground);
+                  font: 600 15px "Barlow Semi Condensed", sans-serif; }
+  .rlist button.own { border-style: dashed; }
+  .rlist button.own.full { border-style: solid; }
+  .rlist button.sel { background: var(--teal); border-color: var(--teal); color: var(--on-teal); }
+  .rlist button.inuse::after { content: " \25CF"; color: var(--accent); }
+  #redit { background: var(--panel); border-radius: 12px; padding: 14px 16px 16px; margin: 10px 0 22px; }
+  #redit label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; }
+  #redit input, #redit select { font: inherit; color: var(--ink); background: var(--ground); border: 1px solid var(--rule); border-radius: 7px; padding: 4px 8px; }
+  #rname { width: 9em; } #rlen { width: 4.5em; }
+  .gridwrap { overflow-x: auto; margin: 12px 0 10px; padding-bottom: 4px; }
+  #grid { display: grid; gap: 2px; align-items: center; min-width: 560px; }
+  #grid .lab { font: 600 13px "Barlow Semi Condensed", sans-serif; color: var(--muted); white-space: nowrap; padding-right: 6px; }
+  #grid button { height: 24px; min-width: 0; padding: 0; border: 0; border-radius: 4px; background: var(--ground);
+                 font: 600 12px/1 "Barlow Semi Condensed", sans-serif; color: var(--ink); }
+  #grid button.beat { box-shadow: inset 2px 0 0 var(--rule); }
+  #grid button.on { background: var(--accent); color: #fff; }
+  #grid button.tone { background: var(--teal); color: var(--on-teal); }
+  #grid button.faint { color: var(--muted); }
+  #grid button:disabled { opacity: 1; cursor: default; }
+  #grid .sep { grid-column: 1 / -1; height: 6px; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <h1>FoMni-1 chord sets</h1>
-  <p class="lede">The chords on the black keys, eight sets of them. Change them here and the FM-1 plays them at once;
-    PRESETS on the FM-1 picks the set.</p>
+  <h1>Jambox FM-1 editor</h1>
+  <p class="lede">The chords on the black keys, eight sets of them, and rhythms of your own beside the ones Jambox FM-1 comes with.
+    Change them here and the FM-1 plays them at once.</p>
 
   <div class="bar">
     <button class="pill" id="usb" type="button">Connect the FM-1</button>
@@ -76,12 +103,21 @@
   <p id="status" role="status">Not connected. Plug the FM-1 in by USB (Chrome or Edge), or open the <a href="../emu/">emulator</a> in another tab and switch it on.</p>
 
   <div id="work" hidden>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tabsets" aria-selected="true">Chord sets</button>
+      <button type="button" role="tab" id="tabrhy" aria-selected="false">Rhythms</button>
+    </div>
+
+   <div id="panesets">
     <div id="sets"></div>
 
     <section id="edit">
       <h2 id="edittitle"></h2>
       <div class="choices" id="roots" role="group" aria-label="Root"></div>
       <div class="choices" id="types" role="group" aria-label="Type"></div>
+      <div class="choices" id="invs" role="group" aria-label="How the chord lies"></div>
+      <p class="small" id="invnote">The last row is how the chord lies: OM, as the Omnichord has it (its notes folded into one
+        octave, the root in the bass); Root, root position; 1st and 2nd, the inversions, with their bottom note in the bass too.</p>
     </section>
 
     <div class="bar">
@@ -89,8 +125,41 @@
       <button class="pill quiet" id="load" type="button">Load a file</button>
       <input type="file" id="file" accept=".json,application/json" hidden>
     </div>
-    <p class="small">A file holds all eight sets as chord names, so it can also be written by hand. Loading one replaces
+    <p class="small">A file holds all eight sets as chord names, so it can also be written by hand (C/E and C/G are C's inversions, C/C its root position). Loading one replaces
       every set on the FM-1. The FM-1 saves by itself a few seconds after a change, once it is quiet.</p>
+   </div>
+
+   <div id="panerhy" hidden>
+    <p class="small" id="rold" hidden>This Jambox FM-1 is an older one: update it (or reload the emulator) to make rhythms here.</p>
+    <div id="rwork">
+      <div class="rlist" id="rfact" role="group" aria-label="The rhythms Jambox FM-1 comes with"></div>
+      <div class="rlist" id="rown" role="group" aria-label="Your own rhythms"></div>
+      <section id="redit">
+        <h2 id="rtitle"></h2>
+        <div class="bar" id="rtools" style="margin-top:0">
+          <label>Name <input id="rname" maxlength="8" autocomplete="off"></label>
+          <label>Steps <input id="rlen" type="number" min="1" max="32"></label>
+          <label>Steps to a beat <select id="rbeat"><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
+        </div>
+        <div class="gridwrap"><div id="grid"></div></div>
+        <p class="small" id="rhelp">A step is a sixteenth note. Click a drum's step to switch its hit on and off. The bass and the chord go round
+          with each click: &#9679; play and hold, &#9675; let go, &#9670; play once (it dies away), &times; cut. Under a bass note that plays,
+          R, 5 or 3 is the chord's root, fifth or third.</p>
+        <div class="bar" style="margin-bottom:0">
+          <button class="pill" id="ruse" type="button">Use it on the FM-1</button>
+          <button class="pill quiet" id="rplay" type="button">Start</button>
+          <button class="pill quiet" id="rcopy" type="button">Copy to an empty place</button>
+          <button class="pill quiet" id="rdel" type="button">Take away</button>
+          <button class="pill quiet" id="rsave" type="button">Save to a file</button>
+          <button class="pill quiet" id="rload" type="button">Load a file</button>
+          <input type="file" id="rfile" accept=".json,application/json" hidden>
+        </div>
+      </section>
+      <p class="small">The first row is the rhythms Jambox FM-1 comes with: they can be looked at and copied, not changed. The second is your
+        own, eight places; ALGORITHM on the FM-1 reaches the ones that hold something, after Reggae. A change plays at once, so start the
+        rhythm and work by ear.</p>
+    </div>
+   </div>
   </div>
 </main>
 <script>
@@ -100,6 +169,8 @@ const $ = (id) => document.getElementById(id);
 const GROUP_START = [3, 5, 8, 10];                   // the black keys' groups: 3, 2, 3, 2, 1
 let link = null, close = null, poll = 0, misses = 0;
 let sets = null, inUse = 0, sig = -1, sel = { set: 0, pad: 0 };
+let INV_NOTE = "";
+let rhy = [], rsel = 0, rInUse = 0, rPlaying = false, rsig = -1;   // the rhythms: all of them, the one shown, the FM-1's
 
 function say(text, bad) {
   $("status").textContent = text;
@@ -127,7 +198,7 @@ function draw() {
       b.type = "button";
       b.className = "pad" + (GROUP_START.includes(i) ? " gap" : "") + (sel.set === s && sel.pad === i ? " sel" : "");
       b.setAttribute("aria-label", `Set ${s + 1}, button ${i + 1}: ${chordName(c)}`);
-      b.innerHTML = `${NOTES[c.root]}<small>${TYPES[c.type]}</small>`;
+      b.innerHTML = `${NOTES[c.root]}<small>${TYPES[c.type]}${c.inv ? "/" + bassName(c) : ""}</small>`;
       b.onclick = () => { sel = { set: s, pad: i }; draw(); };
       pads.append(b);
     });
@@ -136,8 +207,12 @@ function draw() {
   });
   const c = sets[sel.set][sel.pad];
   $("edittitle").innerHTML = `Set ${sel.set + 1}, button ${sel.pad + 1} <span>${chordName(c)}</span>`;
-  choices($("roots"), NOTES, c.root, (root) => change({ root, type: c.type }));
-  choices($("types"), TYPE_LABEL, c.type, (type) => change({ root: c.root, type }));
+  choices($("roots"), NOTES, c.root, (root) => change({ ...c, root }));
+  choices($("types"), TYPE_LABEL, c.type, (type) => change({ ...c, type }));
+  $("invs").hidden = link.protocol < 2;                // (an FM-1 with an older Jambox FM-1: said, not hidden)
+  if (!INV_NOTE) INV_NOTE = $("invnote").textContent;
+  $("invnote").textContent = link.protocol < 2 ? "This Jambox FM-1 is an older one: update it (or reload the emulator) to set how a chord lies, its inversions, here." : INV_NOTE;
+  choices($("invs"), INV_LABEL, c.inv, (inv) => change({ ...c, inv }));
 }
 
 function choices(box, names, on, pick) {
@@ -150,6 +225,166 @@ function choices(box, names, on, pick) {
     b.onclick = () => pick(i);
     box.append(b);
   });
+}
+
+// ---- the rhythms' page
+const STEP_SYM = ["", "\u25CF", "\u25CB", "\u25C6", "\u00D7"];        // play and hold, let go, play once, cut
+const isOwn = (i) => i >= link.nrhythm;
+const shown = () => (rhy[rsel].len ? rhy[rsel] : { ...blankRhythm(), blank: true });   // (an empty place: a blank one to start on)
+const rname = (i) => rhy[i].name || (isOwn(i) ? `User ${i - link.nrhythm + 1}` : "");
+
+function tab(which) {
+  $("tabsets").setAttribute("aria-selected", which === "sets");
+  $("tabrhy").setAttribute("aria-selected", which === "rhy");
+  $("panesets").hidden = which !== "sets";
+  $("panerhy").hidden = which !== "rhy";
+}
+$("tabsets").onclick = () => tab("sets");
+$("tabrhy").onclick = () => tab("rhy");
+
+function drawRhythms() {
+  const own = link && link.protocol >= 3 && rhy.length;
+  $("rold").hidden = !!own;
+  $("rwork").hidden = !own;
+  if (!own) return;
+  for (const [box, from, to] of [[$("rfact"), 0, link.nrhythm], [$("rown"), link.nrhythm, rhy.length]]) {
+    box.textContent = "";
+    for (let i = from; i < to; i++) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = (isOwn(i) ? "own" + (rhy[i].len ? " full" : "") : "") + (i === rsel ? " sel" : "") + (i === rInUse ? " inuse" : "");
+      b.textContent = isOwn(i) ? `${i - link.nrhythm + 1} ${rhy[i].len ? rname(i) : "\u2013"}` : rname(i);
+      b.title = i === rInUse ? "The rhythm the FM-1 plays" : isOwn(i) && !rhy[i].len ? "An empty place" : "";
+      b.onclick = () => { rsel = i; drawRhythms(); };
+      box.append(b);
+    }
+  }
+  const r = shown(), mine = isOwn(rsel);
+  $("rtitle").textContent = mine ? (rhy[rsel].len ? `Your rhythm ${rsel - link.nrhythm + 1}: ${rname(rsel)}` : `Your rhythm ${rsel - link.nrhythm + 1}: empty. Click steps to make one, or load a file`)
+                                 : `${rname(rsel)} (it comes with Jambox FM-1: copy it to change it)`;
+  $("rtools").hidden = !mine;
+  if (document.activeElement !== $("rname")) $("rname").value = r.name;
+  if (document.activeElement !== $("rlen")) $("rlen").value = r.len;
+  $("rbeat").value = String(r.beat);
+  $("ruse").disabled = !rhy[rsel].len || rsel === rInUse;
+  $("rplay").textContent = rPlaying ? "Stop" : "Start";
+  $("rdel").hidden = !mine || !rhy[rsel].len;
+  $("rcopy").hidden = !rhy[rsel].len;
+  $("rsave").hidden = !rhy[rsel].len;
+  drawGrid(r, mine);
+}
+
+function drawGrid(r, mine) {
+  const g = $("grid");
+  g.textContent = "";
+  g.style.gridTemplateColumns = `auto repeat(${r.len}, minmax(15px, 1fr))`;
+  const row = (label, cell) => {
+    const l = document.createElement("div");
+    l.className = "lab";
+    l.textContent = label;
+    g.append(l);
+    for (let i = 0; i < r.len; i++) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.disabled = !mine;
+      if (i && i % r.beat === 0) b.classList.add("beat");
+      b.setAttribute("aria-label", `${label}, step ${i + 1}`);
+      const click = cell(b, i);
+      if (mine && click) b.onclick = () => { const w = edited(); click(w); pushRhythm(); };
+      g.append(b);
+    }
+  };
+  const sep = () => { const d = document.createElement("div"); d.className = "sep"; g.append(d); };
+  DRUMS.forEach((name, k) => row(name, (b, i) => {
+    if (r.drums[i] >> k & 1) b.classList.add("on");
+    return (w) => { w.drums[i] ^= 1 << k; };
+  }));
+  sep();
+  row("Bass", (b, i) => {
+    b.textContent = STEP_SYM[r.bass[i]];
+    if (r.bass[i]) b.classList.add("tone");
+    return (w) => { w.bass[i] = (w.bass[i] + 1) % 5; };
+  });
+  row("Bass note", (b, i) => {
+    const plays = r.bass[i] === 1 || r.bass[i] === 3;
+    b.textContent = plays ? BASS_NOTE[r.note[i]] : "";
+    b.classList.add("faint");
+    return plays ? (w) => { w.note[i] = (w.note[i] + 1) % 3; } : null;
+  });
+  row("Chord", (b, i) => {
+    b.textContent = STEP_SYM[r.chord[i]];
+    if (r.chord[i]) b.classList.add("tone");
+    return (w) => { w.chord[i] = (w.chord[i] + 1) % 5; };
+  });
+}
+
+// the rhythm shown, to change: an empty place becomes a blank rhythm with the first change
+function edited() {
+  if (!rhy[rsel].len) rhy[rsel] = blankRhythm();
+  return rhy[rsel];
+}
+
+async function pushRhythm() {
+  const i = rsel;
+  drawRhythms();
+  try {
+    await link.putRhythm(i - link.nrhythm, rhy[i]);
+    rsig = (await link.rstate()).sig;                  // (ours: not to be read back)
+  } catch (e) { lost(e); }
+}
+
+$("rname").onchange = () => { edited().name = $("rname").value.replace(/[^ -~]/g, "").slice(0, RHY_NAME); pushRhythm(); };
+$("rlen").onchange = () => { edited().len = Math.max(1, Math.min(32, Math.round(+$("rlen").value) || 1)); pushRhythm(); };
+$("rbeat").onchange = () => { edited().beat = +$("rbeat").value; pushRhythm(); };
+$("ruse").onclick = async () => {
+  try { rInUse = await link.useRhythm(rsel); drawRhythms(); } catch (e) { lost(e); }
+};
+$("rplay").onclick = async () => {
+  try { rPlaying = !!(await link.play(!rPlaying)); drawRhythms(); } catch (e) { lost(e); }
+};
+function emptyPlace() {
+  for (let i = link.nrhythm; i < rhy.length; i++) if (!rhy[i].len) return i;
+  say("All eight places for your own rhythms are in use. Take one away first.", true);
+  return -1;
+}
+$("rcopy").onclick = () => {
+  const to = emptyPlace();
+  if (to < 0) return;
+  const r = rhy[rsel];
+  rhy[to] = { ...r, name: r.name.slice(0, RHY_NAME), drums: [...r.drums], bass: [...r.bass], note: [...r.note], chord: [...r.chord] };
+  rsel = to;
+  pushRhythm();
+};
+$("rdel").onclick = () => {
+  if (!confirm(`Take ${rname(rsel)} away from the FM-1?`)) return;
+  rhy[rsel] = { ...blankRhythm(), len: 0 };
+  pushRhythm();
+};
+$("rsave").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([rhythmToFile(rhy[rsel])], { type: "application/json" }));
+  a.download = `jambox-rhythm-${rname(rsel).trim().replace(/[^A-Za-z0-9]+/g, "-") || "own"}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$("rload").onclick = () => $("rfile").click();
+$("rfile").onchange = async () => {
+  const f = $("rfile").files[0];
+  $("rfile").value = "";
+  if (!f) return;
+  let r;
+  try { r = fileToRhythm(await f.text()); }
+  catch (e) { say(`${f.name}: ${e.message}.`, true); return; }
+  const to = isOwn(rsel) && !rhy[rsel].len ? rsel : isOwn(rsel) && confirm(`Replace ${rname(rsel)} with this file's rhythm? (Cancel: it goes to an empty place)`) ? rsel : emptyPlace();
+  if (to < 0) return;
+  rhy[to] = r;
+  rsel = to;
+  await pushRhythm();
+  say(`${f.name} is on the FM-1.`);
+};
+
+async function readRhythms(from) {
+  for (let i = from; i < link.nrhythm + link.nuser; i++) rhy[i] = await link.rhythm(i);
 }
 
 // ---- the FM-1
@@ -187,6 +422,17 @@ async function look() {
       sig = st.sig;
       await refresh();
     }
+    if (link.protocol >= 3) {                          // the rhythms: the one in use, and those changed elsewhere
+      const rs = await link.rstate();
+      const was = `${rInUse} ${rPlaying}`;
+      rInUse = rs.rhythm;
+      rPlaying = rs.playing;
+      if (rs.sig !== rsig) {
+        await readRhythms(rhy.length ? link.nrhythm : 0);
+        rsig = rs.sig;
+        drawRhythms();
+      } else if (was !== `${rInUse} ${rPlaying}`) drawRhythms();
+    }
   } catch (e) {
     if (++misses >= 3) lost(e);
   }
@@ -212,8 +458,12 @@ async function connected(l, closer, what) {
   sig = -1;
   misses = 0;
   sets = null;                                       // (not another FM-1's, from before)
+  rhy = [];
+  rsig = -1;
+  rsel = 0;
   await look();
   if (!sets) { link = close = null; throw new Error("no reply"); }
+  drawRhythms();
   $("work").hidden = false;
   say(what);
   poll = setInterval(look, 700);
@@ -227,7 +477,7 @@ $("usb").onclick = async () => {
   try { access = await navigator.requestMIDIAccess({ sysex: true }); }
   catch { say("The browser did not allow MIDI (SysEx) for this page.", true); return; }
   // the ports named like an FM-1 first; any other pair is still asked (a port that answers INFO is one)
-  const named = (p) => (/fm-?1|fomni/i.test(p.name || "") ? 0 : 1);
+  const named = (p) => (/fm-?1|jambox|fomni/i.test(p.name || "") ? 0 : 1);
   const outs = [...access.outputs.values()].sort((a, b) => named(a) - named(b));
   const inps = [...access.inputs.values()].sort((a, b) => named(a) - named(b));
   for (const out of outs) {
@@ -239,13 +489,13 @@ $("usb").onclick = async () => {
         await Promise.all([inp.open(), out.open()]);
         inp.addEventListener("midimessage", listen);
         const info = await l.info(300);
-        await connected(l, closer, `Connected: FoMni-1 ${info.version}, by USB (${out.name}).`);
+        await connected(l, closer, `Connected: Jambox FM-1 ${info.version}, by USB (${out.name}).`);
         return;
       } catch { closer(); }
     }
   }
   disconnect();
-  say("No FoMni-1 answered. Is it plugged in, and running FoMni-1 0.4 or later?", true);
+  say("No Jambox FM-1 answered. Is it plugged in, and running Jambox FM-1 0.4 or later?", true);
 };
 
 // the emulator, in another tab of this browser
@@ -257,7 +507,7 @@ $("emu").onclick = async () => {
   ch.onmessage = (e) => { if (e.data && e.data.from === "fm1") l.receive(e.data.data); };
   try {
     const info = await l.info(500);
-    await connected(l, () => ch.close(), `Connected: FoMni-1 ${info.version}, the emulator.`);
+    await connected(l, () => ch.close(), `Connected: Jambox FM-1 ${info.version}, the emulator.`);
   } catch {
     ch.close();
     say("The emulator did not answer. Open it in another tab of this browser and switch it on.", true);
@@ -268,7 +518,7 @@ $("emu").onclick = async () => {
 $("save").onclick = () => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([setsToFile(sets)], { type: "application/json" }));
-  a.download = "fomni-chord-sets.json";
+  a.download = "jambox-chord-sets.json";
   a.click();
   URL.revokeObjectURL(a.href);
 };

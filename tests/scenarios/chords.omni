@@ -107,6 +107,12 @@ tap GLO
 expect view 6
 spin K1 1
 expect sync 1
+# Bass, beside it: the bass against the chord, 50 as it comes
+expect bass 50
+spin K2 -60
+expect bass 0
+spin K2 70
+expect bass 70
 tap HOME
 tap PLAY
 expect armed 1
@@ -171,6 +177,31 @@ turn PRESET -1
 expect padroot10 7
 expect par12 2
 expect sync 1
+expect bass 70
 shot after_reboot.png
 # Chord rev comes back at its default
 expect par11 25
+# how a chord lies (Chords, KNOB 4): the Omnichord's folding, root position, the inversions. The second
+# button, C, in its first inversion: C/E. A sequence step written from the button lies the same
+tap SEL
+tapkey b1
+spin K4 2
+expect padinv1 2
+tapkey b1
+expect inv 2
+wait 50
+shot inversion.png
+tap REC
+tapkey b1
+expect seqinv0 2
+expect seqbeats0 4
+spin K1 -1
+spin K4 -1
+expect seqbeats0 3
+expect seqinv0 2
+tap REC
+tap SAVE
+reboot
+wait 100
+expect padinv1 2
+expect seqinv0 2

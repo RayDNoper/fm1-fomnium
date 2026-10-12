@@ -149,6 +149,19 @@ int main(void)
         run(2);
         check("stop", !om_playing);
     }
+    {   /* how a chord lies: root position and the inversions put that tone at the bottom, and (the
+         * inversions) in the bass; the Omnichord's folding is as ever */
+        uint8_t h[OM_NSTR], c[OM_NCHORD], c0[OM_NCHORD], bass, bass0;
+        om_voicing(0, CH_MAJ, 0, 0, h, c0, &bass0);
+        om_voicing_inv(0, CH_MAJ, INV_OM, 0, 0, h, c, &bass);
+        check("inversion: the Omnichord's folding unchanged", c[0] == c0[0] && c[1] == c0[1] && c[2] == c0[2] && bass == bass0);
+        om_voicing_inv(0, CH_MAJ, INV_ROOT, 0, 0, h, c, &bass);
+        check("inversion: root position C E G, C in the bass", c[0] % 12 == 0 && c[0] < c[1] && c[1] < c[2] && bass % 12 == 0);
+        om_voicing_inv(0, CH_MAJ, INV_1ST, 0, 0, h, c, &bass);
+        check("inversion: the first, E G C, E in the bass", c[1] < c[2] && c[2] < c[0] && c[0] - c[1] == 8 && bass % 12 == 4);
+        om_voicing_inv(0, CH_MAJ, INV_2ND, 0, 0, h, c, &bass);
+        check("inversion: the second, G C E, G in the bass", c[2] < c[0] && c[0] < c[1] && bass % 12 == 7);
+    }
     {   /* the chord sequence: C for a beat, G for two, round again. A beat is four steps (0.5 s at 120),
          * in the Blues (12/8) six (0.75 s) */
         static const uint8_t tab[OM_NTRK][OM_NSEQ][2] = {{{0 | CH_MAJ << 4, 1}, {7 | CH_7 << 4, 2}},

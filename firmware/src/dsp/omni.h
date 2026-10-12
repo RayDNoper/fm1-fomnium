@@ -53,25 +53,41 @@ typedef struct {
     uint8_t drum[32];
 } om_rhythm_t;
 const om_rhythm_t *om_rhythm(int i);
+/* after the rhythms that come with it (om_nrhythm of them), OM_NURHY of the player's own. One as the app
+ * keeps it, OM_RHY_BYTES: its steps (1..32; 0: none, and it plays as silence), the steps of a beat (1..8),
+ * its name (8 bytes, 0 after a shorter one), then for each of 32 steps the drums (bits) and
+ * bass | chord << 3 | note << 6 (bass, chord: 0 nothing, 1 T, 2 R, 3 O, 4 N; note: 0 root, 1 fifth, 2 third).
+ * om_rhythm_user() takes one in; it plays at once */
+#define OM_NURHY 8
+#define OM_RHY_NAME 8
+#define OM_RHY_BYTES (2 + OM_RHY_NAME + 64)
+int om_nrhythm(void);
+int om_rhythm_ok(const uint8_t *p);            /* a rhythm as kept: every value in its range */
+void om_rhythm_user(int slot, const uint8_t *p);
 
 /* commands (main loop -> render) */
 void om_init(void);
 void om_set(int param, int value);
 void om_chord(int root, int type);             /* the chord the harp, chord and bass play from now on */
+/* and how it lies: INV_OM as the Omnichord has it (the chord's notes folded into F#3..F4, the root in the
+ * bass), INV_ROOT, INV_1ST, INV_2ND with the root, the second or the third of its tones at the bottom of the
+ * chord, and, for the last two, in the bass (C/E, C/G) */
+enum { INV_OM, INV_ROOT, INV_1ST, INV_2ND, INV_N };
+void om_chord_inv(int root, int type, int inv);
 /* the strings' voice: 0 the OM's harp (Voice 1 + Voice 2), 1.. an FM sound (om_voice_name; Voice 1: its level) */
-#define OM_NVOICES 12
+#define OM_NVOICES 15
 const char *om_voice_name(int i);
 void om_voice(int i);
-/* the chord's voice: 0 the OM's organ, 1.. an FM sound: the strings' eleven, then seven that hold while the
- * chord does (the bass stays as it is) */
-#define OM_NCVOICES 19
+/* the chord's voice: 0 the OM's organ, 1.. an FM sound: eleven that die away, seven that hold while the
+ * chord does, then a DX9's (the bass stays as it is). The strings have those of them that die away */
+#define OM_NCVOICES 30
 const char *om_cvoice_name(int i);
 void om_cvoice(int i);
 /* the strum plate: PL_TRIAD the chord's tones, or a scale (PL_*); shift: the chord's scale moved along the
  * keys by so many of its steps, -6..6 (PL_CHORD) */
 void om_plate(int mode, int shift);
 /* the chord sequence: OM_NTRK tracks of up to OM_NSEQ chords, each for so many beats (0: the track ends before
- * it); one track plays round while the rhythm runs. key: semitones added to every root. A chord from a button
+ * it; its top two bits: how the chord lies, INV_*); one track plays round while the rhythm runs. key: semitones added to every root. A chord from a button
  * plays until the sequence's next one. The tracks are the app's table (om_seq_tab, read as it plays): two
  * bytes a step, root | type << 4, then the beats. Another track (om_seq_track) starts when the one playing
  * comes round; at once if none plays */
@@ -81,6 +97,7 @@ void om_plate(int mode, int shift);
 extern const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
 void om_seq(int on, int key);
 void om_seq_track(int t);
+void om_bass(int level);                       /* the bass against the chord: 0 none .. 50 as it comes .. 100 twice that */
 void om_gate(int on);                          /* a chord pad held (1) / released (0): the chord section */
 void om_strum(int string);                     /* pluck string 0..15 */
 void om_play(int on);                          /* the rhythm: start (from its first step) / stop */
@@ -119,3 +136,5 @@ void om_linear(int root, int type, int transpose, int octave, uint8_t harp[OM_NS
 void om_chord_scale(int root, int type, int transpose, int octave, int shift, uint8_t harp[OM_NSTR]);
 void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_NSTR], uint8_t chord[OM_NCHORD],
                 uint8_t *bass);
+void om_voicing_inv(int root, int type, int inv, int transpose, int octave, uint8_t harp[OM_NSTR],
+                    uint8_t chord[OM_NCHORD], uint8_t *bass);

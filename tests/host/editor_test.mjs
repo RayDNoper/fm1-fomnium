@@ -3,7 +3,7 @@
 // link's messages going in and out as SysEx (app/editor.c).
 //   node tests/host/editor_test.mjs build/emu/omni.wasm
 import fs from "fs";
-import { Link, chordName, parseChord, setsToFile, fileToSets, frame, parse, CMD } from "../../web/fomni_ed.js";
+import { Link, chordName, parseChord, setsToFile, fileToSets, frame, parse, CMD, blankRhythm, rhythmToFile, fileToRhythm } from "../../web/fomni_ed.js";
 
 const wasm = fs.readFileSync(process.argv[2]);
 let mem;
@@ -32,7 +32,7 @@ const link = new Link((bytes) => {
 }, { timeout: 50 });
 
 const info = await link.info();
-ok(info.protocol === 1 && info.nsets === 8 && info.npads === 11 && info.ntypes === 9 && info.version.length > 0, `info: ${JSON.stringify(info)}`);
+ok(info.protocol === 3 && link.nrhythm === 11 && link.nuser === 8 && info.nsets === 8 && info.npads === 11 && info.ntypes === 9 && info.version.length > 0, `info: ${JSON.stringify(info)}`);
 
 let d = await link.sets();
 ok(d.set === 0 && d.sets.length === 8 && d.sets[0].map(chordName).join(" ") === "F C G Dm Am Em G7 E7 D7 Bb A7", "set 1 is the factory one: " + d.sets[0].map(chordName).join(" "));
@@ -51,21 +51,58 @@ ex.web_enc(2, -1);                                  // PRESETS, on the FM-1 itse
 for (let i = 0; i < 20; i++) ex.web_render(128);
 ok((await link.state()).set === 3, "PRESETS turned on the FM-1: the state follows");
 
+// how a chord lies: its bass note in the name
+const inv = await link.pad(0, 1, parseChord("C/E"));
+d = await link.sets();
+ok(inv.inv === 2 && chordName(d.sets[0][1]) === "C/E" && chordName(parseChord("Am/A")) === "Am/A" && parseChord("C/G").inv === 3 &&
+   parseChord("C").inv === 0 && parseChord("C/F") === null, "a chord's inversion written, read back and named: C/E");
+link.protocol = 1;                                  // as with an FM-1 of before: plain types
+d = await link.sets();
+ok(d.sets[0][1].inv === 0 && d.sets[0][1].type === 0, "protocol 1's SETS still answers, the types alone");
+link.protocol = 2;
+d = await link.sets();
+
 let refused = false;
 try { await link.request(CMD.PAD, [0, 0, 12, 0]); } catch { refused = true; }
 ok(refused, "a root out of range: no reply");
 
 // a file, there and back
 const mine = d.sets.map((row) => row.map((c) => ({ ...c })));
-mine[7] = "Eb Bb F Cm Gm Dm Bb7 G7 F7 Ab Cdim".split(" ").map(parseChord);
+mine[7] = "Eb Bb/D F Cm Gm Dm Bb7 G7 F7 Ab Cdim".split(" ").map(parseChord);
 const text = setsToFile(mine);
 await link.put(fileToSets(text));
 d = await link.sets();
-ok(d.sets[7].map(chordName).join(" ") === "Eb Bb F Cm Gm Dm Bb7 G7 F7 Ab Cdim" && chordName(d.sets[3][5]) === "F#sus4", "a file's sets written, and read back");
+ok(d.sets[7].map(chordName).join(" ") === "Eb Bb/D F Cm Gm Dm Bb7 G7 F7 Ab Cdim" && chordName(d.sets[0][1]) === "C/E" && chordName(d.sets[3][5]) === "F#sus4", "a file's sets written, and read back");
 let bad = 0;
 for (const t of ['{"fomni":"chord-sets","sets":[]}', "{}", text.replace("Cdim", "Cmaj9")]) { try { fileToSets(t); } catch { bad++; } }
 ok(bad === 3, "files that are not chord sets are refused");
 ok(parse(frame(CMD.INFO)).cmd === 1 && parse([0xF0, 0, 0x59, 0x11, 0xF7]) === null && chordName(parseChord("Db")) === "C#", "frames and names");
+
+// the rhythms: the ones it comes with read; one of the player's written, used, played, and taken away
+const rock = await link.rhythm(0);
+ok(rock.name === "Rock 1" && rock.len === 32 && rock.beat === 4 && rock.drums[0] === 5 && rock.bass[0] === 1 && rock.chord[4] === 3,
+   "Rock 1 read: " + rhythmToFile(rock).split("\n")[7].trim());
+ok((await link.rhythm(11)).len === 0, "the player's first rhythm is empty");
+const beat3 = fileToRhythm(rhythmToFile({ ...rock, name: "Mine", len: 12, beat: 3 }));
+beat3.drums[1] |= 2;
+beat3.note[0] = 2;
+const r0 = await link.rstate();
+await link.putRhythm(0, beat3);
+const got = await link.rhythm(11), r1 = await link.rstate();
+ok(got.name === "Mine" && got.len === 12 && got.beat === 3 && got.drums[1] === (rock.drums[1] | 2) && got.note[0] === 2 && got.bass[0] === 1 &&
+   got.drums[12] === 0 && r1.sig !== r0.sig, "a rhythm written and read back; the rhythms' number changes");
+ok(await link.useRhythm(11) === 11 && (await link.rstate()).rhythm === 11, "... and used");
+await link.play(true);
+for (let i = 0; i < 40; i++) ex.web_render(128);
+ok((await link.rstate()).playing, "the rhythm started from the editor");
+await link.play(false);
+let refusedR = 0;
+try { await link.useRhythm(12); } catch { refusedR++; }
+try { await link.putRhythm(1, { ...beat3, beat: 0 }); } catch { refusedR++; }
+try { fileToRhythm(rhythmToFile(beat3).replace("TR", "TZ")); } catch { refusedR++; }
+ok(refusedR === 3, "an empty rhythm is not used; a rhythm or a file out of range is refused");
+await link.putRhythm(0, { ...blankRhythm(), len: 0 });
+ok((await link.rhythm(11)).len === 0, "the rhythm taken away");
 
 // a port that sends back what it is sent (ALSA's "Midi Through") is not an FM-1
 const echo = new Link((bytes) => queueMicrotask(() => echo.receive(bytes)), { timeout: 50 });

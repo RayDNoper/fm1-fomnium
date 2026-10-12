@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-only
      FM-1 firmware switcher: several firmware packages kept in the browser (a phone's, for the stage), any of
      them written to the FM-1 over USB MIDI with Felucca's updater (fm1ota.js). It works off line once it has
-     been opened on line (switch_sw.js). tools/make_pages.py inlines fm1pkg.js, fm1ota.js and FoMni-1's package
+     been opened on line (switch_sw.js). tools/make_pages.py inlines fm1pkg.js, fm1ota.js and Jambox FM-1's package
      metadata. -->
 <html lang="en">
 <head>
@@ -62,7 +62,7 @@
 <script type="module">
 /*LIB*/
 const $ = (id) => document.getElementById(id);
-const meta = /*META*/;                              // FoMni-1's own package: { version, product, pkg }
+const meta = /*META*/;                              // Jambox FM-1's own package: { version, product, pkg }
 const MODEL = /^FM-1_\d+$/;                          // a package for the FM-1 (the stock firmware is FM-1_015)
 let items = [];                                      // { id (stored ones), name, product, bytes, own }
 let writing = false, db = null;
@@ -179,15 +179,15 @@ async function install(it) {
   draw();
 }
 
-// ---- start: FoMni-1's own package (kept off line with the page), then the ones added before
+// ---- start: Jambox FM-1's own package (kept off line with the page), then the ones added before
 (async () => {
   try {
     const r = await fetch(meta.pkg);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const bytes = new Uint8Array(await r.arrayBuffer());
     if (productOf(bytes) !== meta.product) throw new Error("the file is damaged");
-    items.push({ name: `FoMni-1 ${meta.version}`, product: meta.product, bytes, own: true });
-  } catch (e) { say(`FoMni-1's own package could not be read (${e.message}).`, true); }
+    items.push({ name: `Jambox FM-1 ${meta.version}`, product: meta.product, bytes, own: true });
+  } catch (e) { say(`Jambox FM-1's own package could not be read (${e.message}).`, true); }
   try {
     db = await openDb();
     for (const row of await request(store("readonly").getAll())) items.push({ id: row.id, name: row.name, product: row.product, bytes: row.bytes });
@@ -199,7 +199,7 @@ async function install(it) {
     try {
       await navigator.serviceWorker.register("sw.js");
       await navigator.serviceWorker.ready;
-      $("offline").textContent = "This page and FoMni-1's package are kept on this device: it works without a network.";
+      $("offline").textContent = "This page and Jambox FM-1's package are kept on this device: it works without a network.";
     } catch { $("offline").textContent = "This browser did not keep the page for use without a network."; }
   }
 })();

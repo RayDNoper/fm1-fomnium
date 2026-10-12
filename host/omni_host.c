@@ -394,6 +394,16 @@ static int expect(const char *what, const char *val)
         got = SQ_TYPE(atoi(what + 7) % NSEQ);
     else if (!strncmp(what, "seqbeats", 8))
         got = SQ_BEATS(atoi(what + 8) % NSEQ);
+    else if (!strncmp(what, "seqinv", 6))         /* how step N's chord lies, a button's, the chord's now */
+        got = SQ_INV(atoi(what + 6) % NSEQ);
+    else if (!strncmp(what, "padinv", 6))
+        got = proj.pad_inv[proj.set][atoi(what + 6) % NPADS];
+    else if (!strcmp(what, "inv"))
+        got = ui.inv;
+    else if (!strncmp(what, "rhylen", 6))         /* the player's rhythm N: its steps (0: none) */
+        got = proj.rhy[atoi(what + 6) % OM_NURHY][0];
+    else if (!strcmp(what, "bass"))               /* the bass's level, 0..100 (50 as it comes) */
+        got = proj.bass + 50;
     else if (!strcmp(what, "seqtrk"))             /* the track in use, and (seqplay) the one playing */
         got = proj.seq_trk;
     else if (!strcmp(what, "seqplay"))

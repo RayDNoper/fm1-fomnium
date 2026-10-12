@@ -16,7 +16,7 @@ cd build/pages
 rm -rf .git
 git init -q -b gh-pages
 git add -A
-git commit -q -m "Site for FoMni $V (from $SHA)"
+git commit -q -m "Site for Jambox $V (from $SHA)"
 git push -q -f "$REMOTE" gh-pages
 rm -rf .git
 # ask GitHub Pages to build it now: a push alone has left the first deploy stuck on "building"

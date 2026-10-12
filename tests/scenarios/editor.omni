@@ -1,9 +1,9 @@
 # the editor link (app/editor.c, web/EDITOR_PROTOCOL.md): SysEx 7D 46 4F <cmd> ...
 wait 200
-# INFO: protocol 1, 8 sets, 11 buttons, 9 types, then the version
+# INFO: protocol 3, 8 sets, 11 buttons, 9 types, then the version
 sysex 7D 46 4F 01
 expect sx3 1
-expect sx4 1
+expect sx4 3
 expect sx5 8
 expect sx6 11
 expect sx7 9
@@ -34,6 +34,21 @@ expect sxlen 0
 sysex 7D 46 4F 04 08 01 00 00
 expect sxlen 0
 expect padroot1 2
+# how a chord lies, in the type byte's bits 4 and 5: set 1, button 1 becomes C in its first inversion (C/E).
+# SETS2 tells it; SETS, as an older editor asks, the type alone
+sysex 7D 46 4F 04 00 01 00 20
+expect sxlen 8
+expect sx7 32
+expect padroot1 0
+expect padtype1 0
+expect padinv1 2
+sysex 7D 46 4F 07
+expect sxlen 181
+expect sx8 32
+sysex 7D 46 4F 03
+expect sx8 0
+sysex 7D 46 4F 04 00 01 00 40
+expect sxlen 0
 # SET: the third set, as PRESETS would; STATE tells it, and its number changes with a chord
 sysex 7D 46 4F 05 02
 expect sx4 2
@@ -41,6 +56,71 @@ expect set 2
 sysex 7D 46 4F 02
 expect sxlen 9
 expect sx4 2
+# the rhythms (protocol 3). RHY: the first, Rock 1: 32 steps, four to a beat, its name, then for each step
+# the drums, bass | note << 3, chord (step 0: bass drum and hi-hat, the bass plays)
+sysex 7D 46 4F 08 00
+expect sxlen 111
+expect sx4 0
+expect sx5 32
+expect sx6 4
+expect sx7 82
+expect sx15 5
+expect sx16 1
+expect sx17 0
+# the player's own, after the eleven: the first is empty, and ALGORITHM passes over the empty ones
+sysex 7D 46 4F 08 0B
+expect sx5 0
+turn ALGO 12
+expect par4 10
+# RHYPUT: the first of them, 16 steps, "Mine". It is there on ALGORITHM, and on the Rhythm page
+sysex 7D 46 4F 09 00 10 04 4D 69 6E 65 00 00 00 00 01 01 00 00 00 00 04 02 00 00 00 00 10 00 03 00 00 00 04 00 00 00 00 00 01 09 00 00 00 00 04 02 00 00 00 00 10 00 03 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+expect sxlen 6
+expect sx4 0
+expect sx5 0
+expect rhylen0 16
+expect dirty 1
+turn ALGO 1
+expect par4 11
+turn ALGO 1
+expect par4 11
+sysex 7D 46 4F 08 0B
+expect sx5 16
+expect sx7 77
+expect sx27 16
+expect sx28 0
+expect sx29 3
+tap SEQ
+wait 50
+shot rhythm_mine.png
+# RHYSEL picks a rhythm (not an empty one); RSTATE tells it and whether it plays; PLAY starts and stops it
+sysex 7D 46 4F 0A 0C
+expect sxlen 0
+sysex 7D 46 4F 0C 01
+wait 300
+expect playing 1
+sysex 7D 46 4F 0B
+expect sxlen 10
+expect sx4 11
+expect sx5 1
+sysex 7D 46 4F 0A 03
+expect par4 3
+sysex 7D 46 4F 0C 00
+wait 50
+expect playing 0
+# a value out of range (no steps to a beat): no reply, nothing written
+sysex 7D 46 4F 09 01 10 00 42 61 64 00 00 00 00 00 01 01 00 00 00 00 04 02 00 00 00 00 10 00 03 00 00 00 04 00 00 00 00 00 01 09 00 00 00 00 04 02 00 00 00 00 10 00 03 00 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+expect sxlen 0
+expect rhylen1 0
+# saved with the rest; and taken away again (no steps): ALGORITHM passes over it once more
+tap SAVE
+reboot
+wait 100
+expect rhylen0 16
+sysex 7D 46 4F 09 00 00 04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+expect sxlen 6
+expect rhylen0 0
+turn ALGO 12
+expect par4 10
 # another maker's SysEx: no reply
 sysex 00 59 11 00
 expect sxlen 0

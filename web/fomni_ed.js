@@ -1,24 +1,41 @@
 // SPDX-License-Identifier: GPL-3.0-only
 //
-// FoMni-1's editor link in the browser: the SysEx protocol of firmware/src/app/editor.c
+// Jambox FM-1's editor link in the browser: the SysEx protocol of firmware/src/app/editor.c
 // (web/EDITOR_PROTOCOL.md), over anything that can carry a message (Web MIDI, the emulator).
 
 export const HEADER = [0x7D, 0x46, 0x4F];           // the non-commercial id, "FO"
-export const CMD = { INFO: 1, STATE: 2, SETS: 3, PAD: 4, SET: 5, PUT: 6 };
+export const CMD = { INFO: 1, STATE: 2, SETS: 3, PAD: 4, SET: 5, PUT: 6, SETS2: 7, RHY: 8, RHYPUT: 9, RHYSEL: 10, RSTATE: 11, PLAY: 12 };
 export const NOTES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 export const TYPES = ["", "m", "7", "M7", "m7", "dim", "aug", "sus4", "add9"];
 export const TYPE_LABEL = ["maj", "m", "7", "M7", "m7", "dim", "aug", "sus4", "add9"];
 
-export function chordName(c) { return NOTES[c.root] + TYPES[c.type]; }
+// each type's three tones (the firmware's OM_TYPE_TONES), and how a chord lies: 0 as the Omnichord folds
+// it, 1 root position, 2 and 3 the inversions (the second, the third tone at the bottom and in the bass)
+export const TONES = [[0, 4, 7], [0, 3, 7], [0, 4, 10], [0, 4, 11], [0, 3, 10], [0, 3, 6], [0, 4, 8], [0, 5, 7], [0, 4, 2]];
+export const INV_LABEL = ["OM", "Root", "1st", "2nd"];
 
-// "Dm", "Bb7", "F#sus4" ... -> { root, type }, or null. Sharps and flats both read.
-export function parseChord(s) {
-  const m = /^([A-Ga-g])([#b]?)(.*)$/.exec(String(s).trim());
-  if (!m) return null;
+// the note at the bottom of a chord that lies some way ("" for the Omnichord's folding)
+export function bassName(c) { return c.inv ? NOTES[(c.root + TONES[c.type][c.inv - 1]) % 12] : ""; }
+// "Dm", "Bb7"; with how it lies as its bass note: "C/C" root position, "C/E", "C/G"
+export function chordName(c) { return NOTES[c.root] + TYPES[c.type] + (c.inv ? "/" + bassName(c) : ""); }
+
+function noteOf(s) {
+  const m = /^([A-Ga-g])([#b]?)$/.exec(s);
+  if (!m) return -1;
   const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
-  const root = (base + (m[2] === "#" ? 1 : m[2] === "b" ? 11 : 0)) % 12;
-  const type = TYPES.indexOf(m[3] === "maj" ? "" : m[3]);
-  return type < 0 ? null : { root, type };
+  return (base + (m[2] === "#" ? 1 : m[2] === "b" ? 11 : 0)) % 12;
+}
+
+// "Dm", "Bb7", "F#sus4", "C/E" ... -> { root, type, inv }, or null. Sharps and flats both read.
+export function parseChord(s) {
+  const [name, bass, more] = String(s).trim().split("/");
+  const m = /^([A-Ga-g][#b]?)(.*)$/.exec(name);
+  if (!m || more !== undefined) return null;
+  const root = noteOf(m[1]), type = TYPES.indexOf(m[2] === "maj" ? "" : m[2]);
+  if (type < 0) return null;
+  if (bass === undefined) return { root, type, inv: 0 };
+  const inv = TONES[type].findIndex((t) => (root + t) % 12 === noteOf(bass));     // (the bass: one of its tones)
+  return inv < 0 ? null : { root, type, inv: inv + 1 };
 }
 
 export function frame(cmd, args = []) { return Uint8Array.from([0xF0, ...HEADER, cmd, ...args, 0xF7]); }
@@ -42,6 +59,9 @@ export class Link {
     this.waiting = null;
     this.nsets = 8;
     this.npads = 11;
+    this.protocol = 1;                                // 2: the FM-1 knows how a chord lies (inv); 3: the rhythms
+    this.nrhythm = 0;                                 // the rhythms it comes with,
+    this.nuser = 0;                                   // and the player's own after them
   }
 
   receive(bytes) {
@@ -72,9 +92,11 @@ export class Link {
   async info(timeout) {
     const a = await this.request(CMD.INFO, [], timeout);
     const end = a.indexOf(0, 4);
-    if (a.length < 5 || a[0] < 1 || a[1] < 1 || a[1] > 16 || a[2] < 1 || a[2] > 16 || a[3] !== TYPES.length) throw new Error("not a FoMni-1");
+    if (a.length < 5 || a[0] < 1 || a[1] < 1 || a[1] > 16 || a[2] < 1 || a[2] > 16 || a[3] !== TYPES.length) throw new Error("not a Jambox FM-1");
+    this.protocol = a[0];
     this.nsets = a[1];
     this.npads = a[2];
+    if (a[0] >= 3 && end >= 0 && a.length >= end + 3) { this.nrhythm = a[end + 1]; this.nuser = a[end + 2]; }
     return { protocol: a[0], nsets: a[1], npads: a[2], ntypes: a[3],
              version: String.fromCharCode(...a.slice(4, end < 0 ? a.length : end)) };
   }
@@ -85,16 +107,19 @@ export class Link {
     return { set: a[0], sig: (a[1] | a[2] << 7 | a[3] << 14 | a[4] << 21) >>> 0 };
   }
 
-  // { set, sets: [[{ root, type } x 11] x 8] }
+  // a chord's type byte: with how it lies in bits 4, 5 (protocol 2)
+  typeByte(c) { return this.protocol >= 2 ? c.type | (c.inv || 0) << 4 : c.type; }
+
+  // { set, sets: [[{ root, type, inv } x 11] x 8] }
   async sets() {
-    const a = await this.request(CMD.SETS);
+    const a = await this.request(this.protocol >= 2 ? CMD.SETS2 : CMD.SETS);
     if (a.length !== 1 + 2 * this.nsets * this.npads) throw new Error("a broken reply");
     const sets = [];
     for (let s = 0; s < this.nsets; s++) {
       const row = [];
       for (let i = 0; i < this.npads; i++) {
         const k = 1 + 2 * (s * this.npads + i);
-        row.push({ root: a[k], type: a[k + 1] });
+        row.push({ root: a[k], type: a[k + 1] & 15, inv: a[k + 1] >> 4 });
       }
       sets.push(row);
     }
@@ -102,32 +127,125 @@ export class Link {
   }
 
   async pad(set, pad, c) {
-    const a = await this.request(CMD.PAD, [set, pad, c.root, c.type]);
+    const a = await this.request(CMD.PAD, [set, pad, c.root, this.typeByte(c)]);
     if (a.length !== 4) throw new Error("a broken reply");
-    return { root: a[2], type: a[3] };
+    return { root: a[2], type: a[3] & 15, inv: a[3] >> 4 };
   }
 
   async select(set) { return (await this.request(CMD.SET, [set]))[0]; }
 
   async put(sets) {
-    const a = await this.request(CMD.PUT, sets.flatMap((row) => row.flatMap((c) => [c.root, c.type])), 1500);
+    const a = await this.request(CMD.PUT, sets.flatMap((row) => row.flatMap((c) => [c.root, this.typeByte(c)])), 1500);
     if (a[0] !== 0) throw new Error("the FM-1 refused the chord sets");
   }
 }
 
-// the chord sets as a file: chord names, so it can be read and written by hand
+// ---- rhythms (protocol 3). One is { name, len, beat, drums, bass, note, chord }: len steps (up to 32; 0: an
+// empty one), beat steps to a beat, and for each of 32 steps the drums (bits: DRUMS), the bass and the chord
+// (0 nothing, 1 play and hold, 2 let go, 3 play once, 4 cut: STEP_CMD) and the bass's note (0 root, 1 fifth,
+// 2 third: BASS_NOTE)
+export const DRUMS = ["Bass drum", "Claves", "Hi-hat", "Cymbal", "Snare"];
+export const STEP_CMD = "-TRON";
+export const BASS_NOTE = "R53";
+export const RHY_NAME = 8;
+
+export function blankRhythm(name = "") {
+  const z = () => new Array(32).fill(0);
+  return { name, len: 32, beat: 4, drums: z(), bass: z(), note: z(), chord: z() };
+}
+
+function rhythmBytes(r) {
+  const name = Array.from({ length: RHY_NAME }, (_, i) => (i < r.name.length ? r.name.charCodeAt(i) & 0x7F : 0));
+  const steps = [];
+  for (let i = 0; i < 32; i++) {
+    const on = i < r.len;
+    steps.push(on ? r.drums[i] & 31 : 0, on ? (r.bass[i] & 7) | (r.note[i] & 3) << 3 : 0, on ? r.chord[i] & 7 : 0);
+  }
+  return [r.len, r.beat, ...name, ...steps];
+}
+
+Link.prototype.rhythm = async function (index) {
+  const a = await this.request(CMD.RHY, [index]);
+  if (a.length !== 3 + RHY_NAME + 96 || a[0] !== index) throw new Error("a broken reply");
+  const r = blankRhythm(String.fromCharCode(...a.slice(3, 3 + RHY_NAME).filter((c) => c)));
+  r.len = a[1];
+  r.beat = a[2];
+  for (let i = 0; i < 32; i++) {
+    const k = 3 + RHY_NAME + 3 * i;
+    r.drums[i] = a[k];
+    r.bass[i] = a[k + 1] & 7;
+    r.note[i] = a[k + 1] >> 3;
+    r.chord[i] = a[k + 2];
+  }
+  return r;
+};
+
+// one of the player's own (slot 0..): written, or with len 0 taken away
+Link.prototype.putRhythm = async function (slot, r) {
+  const a = await this.request(CMD.RHYPUT, [slot, ...rhythmBytes(r)], 1500);
+  if (a[0] !== slot || a[1] !== 0) throw new Error("the FM-1 refused the rhythm");
+};
+
+Link.prototype.useRhythm = async function (index) { return (await this.request(CMD.RHYSEL, [index]))[0]; };
+Link.prototype.play = async function (on) { return (await this.request(CMD.PLAY, [on ? 1 : 0]))[0]; };
+Link.prototype.rstate = async function () {
+  const a = await this.request(CMD.RSTATE);
+  if (a.length !== 6) throw new Error("a broken reply");
+  return { rhythm: a[0], playing: !!a[1], sig: (a[2] | a[3] << 7 | a[4] << 14 | a[5] << 21) >>> 0 };
+};
+
+// a rhythm as a file: a line of text a row, a character a step ("x" a drum's hit; the bass and chord as
+// STEP_CMD has them, the bass's notes as BASS_NOTE), so it can be read and written by hand
+export function rhythmToFile(r) {
+  const row = (f) => Array.from({ length: r.len }, (_, i) => f(i)).join("");
+  const j = { fomni: "rhythm", version: 1, name: r.name, steps: r.len, beat: r.beat, drums: {} };
+  DRUMS.forEach((d, k) => { j.drums[d] = row((i) => (r.drums[i] >> k & 1 ? "x" : "-")); });
+  j.bass = row((i) => STEP_CMD[r.bass[i]]);
+  j.bassNote = row((i) => BASS_NOTE[r.note[i]]);
+  j.chord = row((i) => STEP_CMD[r.chord[i]]);
+  return JSON.stringify(j, null, 1);
+}
+
+export function fileToRhythm(text) {
+  const j = JSON.parse(text);
+  if (!j || j.fomni !== "rhythm" || !Number.isInteger(j.steps) || j.steps < 1 || j.steps > 32) throw new Error("not a Jambox FM-1 rhythm file");
+  if (!Number.isInteger(j.beat) || j.beat < 1 || j.beat > 8) throw new Error("beat: 1 to 8 steps expected");
+  const r = blankRhythm(String(j.name || "").replace(/[^ -~]/g, "").slice(0, RHY_NAME));
+  r.len = j.steps;
+  r.beat = j.beat;
+  const row = (what, s, set) => {
+    if (typeof s !== "string" || s.length !== j.steps) throw new Error(`${what}: ${j.steps} characters expected`);
+    for (let i = 0; i < j.steps; i++) {
+      const v = set.indexOf(s[i]);
+      if (v < 0) throw new Error(`${what}, step ${i + 1}: "${s[i]}" is not one of "${set}"`);
+      r[what === "bass" ? "bass" : what === "bassNote" ? "note" : "chord"][i] = v;
+    }
+  };
+  DRUMS.forEach((d, k) => {
+    const s = j.drums && j.drums[d];
+    if (typeof s !== "string" || s.length !== j.steps) throw new Error(`${d}: ${j.steps} characters expected`);
+    for (let i = 0; i < j.steps; i++) if (s[i] === "x") r.drums[i] |= 1 << k; else if (s[i] !== "-") throw new Error(`${d}, step ${i + 1}: "x" or "-" expected`);
+  });
+  row("bass", j.bass, STEP_CMD);
+  row("bassNote", j.bassNote, BASS_NOTE);
+  row("chord", j.chord, STEP_CMD);
+  return r;
+}
+
+// the chord sets as a file: chord names (how one lies as its bass note, "C/E"), so it can be read and
+// written by hand
 export function setsToFile(sets) {
   return JSON.stringify({ fomni: "chord-sets", version: 1, sets: sets.map((row) => row.map(chordName)) }, null, 1);
 }
 
 export function fileToSets(text, nsets = 8, npads = 11) {
   const j = JSON.parse(text);
-  if (!j || j.fomni !== "chord-sets" || !Array.isArray(j.sets) || j.sets.length !== nsets) throw new Error("not a FoMni-1 chord sets file");
+  if (!j || j.fomni !== "chord-sets" || !Array.isArray(j.sets) || j.sets.length !== nsets) throw new Error("not a Jambox FM-1 chord sets file");
   return j.sets.map((row, s) => {
     if (!Array.isArray(row) || row.length !== npads) throw new Error(`set ${s + 1}: ${npads} chords expected`);
     return row.map((name, i) => {
       const c = parseChord(name);
-      if (!c) throw new Error(`set ${s + 1}, button ${i + 1}: "${name}" is not a chord FoMni-1 plays`);
+      if (!c) throw new Error(`set ${s + 1}, button ${i + 1}: "${name}" is not a chord Jambox FM-1 plays`);
       return c;
     });
   });

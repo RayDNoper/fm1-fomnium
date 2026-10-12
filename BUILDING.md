@@ -1,4 +1,4 @@
-# Building FoMni
+# Building Jambox
 
 The build makes three files in `build/`:
 

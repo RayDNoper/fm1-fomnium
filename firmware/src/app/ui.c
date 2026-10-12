@@ -18,15 +18,15 @@ static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords
                                               "Sequence"};
 /* the four knobs of each page: a parameter, or one of these */
 enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_SYNC,
-       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_NONE };
+       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
     {P_REVERB, P_SPACE, P_WIDTH, P_CREV},
-    {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
+    {K_PADROOT, K_PADTYPE, P_TRANSPOSE, K_PADINV},
     {K_PLATE, K_SHIFT, P_TUNE, P_MIDI},
     {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
-    {K_SYNC, K_NONE, K_NONE, K_NONE},
+    {K_SYNC, K_BASS, K_NONE, K_NONE},
     {K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS},
 };
 
@@ -69,12 +69,13 @@ static struct {
     int8_t pad;                        /* the chord button sounding (or held), -1 none, -2 a chord from MIDI, */
                                        /* -3 one from the sequence */
     uint8_t pad_sel;                   /* the chord button the CHORDS page edits */
+    uint8_t rhy_n;                     /* counts the editor's changes to a rhythm: the page draws it again */
     uint8_t seq_sel;                   /* the step the SEQUENCE page edits, and a chord button writes */
     uint8_t seq_n, seq_drv;            /* om_seq_n as last seen; the sequence was playing */
     uint8_t seq_on, seq_key, seq_trk;  /* what the engine was told last */
     uint32_t seq_look;                 /* until then the page shows the cursor's half, though another plays */
     uint8_t npads_down;
-    uint8_t root, type;                /* the chord (before transpose) */
+    uint8_t root, type, inv;           /* the chord (before transpose), and how it lies (INV_*) */
     uint8_t armed;                     /* SYNC START waiting for a chord */
     uint8_t dirty;                     /* the project changed since the last save */
     uint32_t act_t, saved_t;
@@ -141,7 +142,8 @@ static void chord_name(int root, int type, char *b)
 #define SQ (proj.seq[proj.seq_trk])
 #define SQ_ROOT(i) (SQ[i][0] & 15u)
 #define SQ_TYPE(i) (SQ[i][0] >> 4)
-#define SQ_BEATS(i) (SQ[i][1])
+#define SQ_BEATS(i) (SQ[i][1] & 31u)
+#define SQ_INV(i) (SQ[i][1] >> 6)
 static int seq_len(void)
 {
     int n = 0;
@@ -149,13 +151,15 @@ static int seq_len(void)
         n++;
     return n;
 }
-static int seq_plays(void) { return proj.seq_on && om_playing && proj.seq[om_seq_trk % NTRK][0][1]; }
+static int seq_plays(void) { return proj.seq_on && om_playing && (proj.seq[om_seq_trk % NTRK][0][1] & 31u); }
 
 /* ------------------------------------------------------------ values --- */
 static int knob_get(int k)
 {
     if (k == K_SYNC)
         return proj.sync;
+    if (k == K_BASS)                             /* 50: the bass as it comes */
+        return proj.bass + 50;
     if (k == K_SQSTEP)
         return ui.seq_sel;
     if (k == K_SQROOT)                           /* as it sounds in this chord set's key */
@@ -170,6 +174,8 @@ static int knob_get(int k)
         return proj.pad_root[proj.set][ui.pad_sel];
     if (k == K_PADTYPE)
         return proj.pad_type[proj.set][ui.pad_sel];
+    if (k == K_PADINV)
+        return proj.pad_inv[proj.set][ui.pad_sel];
     if (k == K_LEDS)
         return proj.leds;
     if (k == K_PLATE) {
@@ -201,7 +207,7 @@ static void knob_range(int k, int *lo, int *hi)
         *hi = seq_len() < NSEQ ? seq_len() : NSEQ - 1;
     } else {
         *lo = 0;
-        *hi = k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
+        *hi = k == K_BASS ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
               k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
               k == K_CVOICE ? OM_NCVOICES - 1 : 0;
     }
@@ -213,13 +219,19 @@ static const char *knob_name(int k)
     return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" :
            k == K_PLATE ? "Strings" : k == K_DARK ? "Dark" : k == K_VOICE ? "Harp" : k == K_CVOICE ? "Chord" :
            k == K_SHIFT ? "Shift" : k == K_SYNC ? "Sync start" : k == K_SQSTEP ? "Step" : k == K_SQROOT ? "Root" :
-           k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : "";
+           k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : k == K_PADINV ? "Invert" : k == K_BASS ? "Bass" : "";
 }
 static void knob_text(int k, char *b)
 {
     int v = knob_get(k);
     if (k < P_NPARAMS) {
         om_param_text(k, v, b);
+    } else if (k == K_PADINV) {                  /* the Omnichord's folding; root position; the inversions */
+        const char *n = v == INV_ROOT ? "Root" : v == INV_1ST ? "1st" : v == INV_2ND ? "2nd" : "OM";
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_BASS) {
+        itoa_u((uint32_t)v, b);
     } else if (k == K_SQSTEP) {
         itoa_u((uint32_t)v + 1u, b);
     } else if (k == K_SQBEATS) {                 /* none: the sequence ends before this step */
@@ -272,25 +284,43 @@ static void knob_text(int k, char *b)
 }
 
 static void sound_chord(void);
+/* a rhythm of the player's own that holds nothing: the knobs pass over it */
+static int rhy_empty(int i) { return i >= om_nrhythm() && !proj.rhy[i - om_nrhythm()][0]; }
+
 static void knob_set(int k, int v)
 {
     int lo, hi;
     knob_range(k, &lo, &hi);
+    if (k == P_RHYTHM) {                         /* so many rhythms on, the empty ones not counted */
+        int t = proj.par[k], d = v > t ? 1 : -1, n = v > t ? v - t : t - v;
+        while (n--) {
+            int nx = t + d;
+            while (nx >= lo && nx <= hi && rhy_empty(nx))
+                nx += d;
+            if (nx < lo || nx > hi)
+                break;
+            t = nx;
+        }
+        v = t;
+    }
     v = v < lo ? lo : v > hi ? hi : v;
     if (v == knob_get(k))
         return;
     if (k < P_NPARAMS) {
         proj.par[k] = (int16_t)v;
         om_set(k, v);
-    } else if (k == K_PADROOT || k == K_PADTYPE) {
+    } else if (k == K_PADROOT || k == K_PADTYPE || k == K_PADINV) {
         if (k == K_PADROOT)
             proj.pad_root[proj.set][ui.pad_sel] = (uint8_t)v;
-        else
+        else if (k == K_PADTYPE)
             proj.pad_type[proj.set][ui.pad_sel] = (uint8_t)v;
+        else
+            proj.pad_inv[proj.set][ui.pad_sel] = (uint8_t)v;
         if (ui.pad == (int8_t)ui.pad_sel) {        /* the button being edited is the one sounding */
             ui.root = proj.pad_root[proj.set][ui.pad_sel];
             ui.type = proj.pad_type[proj.set][ui.pad_sel];
-            om_chord(ui.root, ui.type);
+            ui.inv = proj.pad_inv[proj.set][ui.pad_sel];
+            sound_chord();
         }
     } else if (k == K_LEDS) {
         proj.leds = (uint8_t)v;
@@ -308,6 +338,9 @@ static void knob_set(int k, int v)
     } else if (k == K_CVOICE) {
         proj.cvoice = (uint8_t)v;
         om_cvoice(v);
+    } else if (k == K_BASS) {
+        proj.bass = (int8_t)(v - 50);
+        om_bass(v);
     } else if (k == K_SYNC) {                    /* SYNC START: PLAY waits for the first chord */
         proj.sync = (uint8_t)v;
         if (!v)
@@ -323,7 +356,7 @@ static void knob_set(int k, int v)
         else if (k == K_SQTYPE)
             st[0] = (uint8_t)((st[0] & 15u) | (uint32_t)v << 4);
         else
-            st[1] = (uint8_t)v;
+            st[1] = (uint8_t)((st[1] & 0xC0u) | (uint32_t)v);
         ui.seq_look = plat_ms() + 4000u;
     }
     mark_dirty();
@@ -353,16 +386,15 @@ static void turn(int role, int k, int32_t e)
 }
 
 /* ------------------------------------------------------------- chords --- */
-static void sound_chord(void) { om_chord(ui.root, ui.type); }
+static void sound_chord(void) { om_chord_inv(ui.root, ui.type, ui.inv); }
 
 /* the SEQUENCE page, the rhythm stopped: a chord button writes its chord at the cursor, which moves on. A
  * new step takes the beats of the one before it (the first: four) */
-static void seq_write(int root, int type)
+static void seq_write(int root, int type, int inv)
 {
     int i = ui.seq_sel;
     SQ[i][0] = (uint8_t)((root - seq_key() + 12) % 12 | type << 4);
-    if (!SQ_BEATS(i))
-        SQ[i][1] = i ? SQ_BEATS(i - 1) : 4;
+    SQ[i][1] = (uint8_t)((SQ_BEATS(i) ? SQ_BEATS(i) : i ? SQ_BEATS(i - 1) : 4u) | (uint32_t)inv << 6);
     if (i < NSEQ - 1)
         ui.seq_sel++;
     mark_dirty();
@@ -402,6 +434,7 @@ static void seq_follow(void)
         const uint8_t *st = proj.seq[om_seq_trk % NTRK][om_seq_at % NSEQ];
         ui.root = (uint8_t)(((st[0] & 15) + key) % 12);
         ui.type = (uint8_t)(st[0] >> 4);
+        ui.inv = (uint8_t)(st[1] >> 6);
         ui.pad = -3;
     }
     ui.seq_n = om_seq_n;
@@ -433,7 +466,7 @@ static void pad_down(int p)
     if (ui.view == V_PADS)
         ui.pad_sel = (uint8_t)p;
     if (ui.view == V_SEQ && proj.seq_on && !om_playing)
-        seq_write(proj.pad_root[proj.set][p], type);
+        seq_write(proj.pad_root[proj.set][p], type, proj.pad_inv[proj.set][p]);
     if (proj.hold && ui.pad == p && !ui.npads_down && ui.root == proj.pad_root[proj.set][p] && ui.type == type) {
         ui.pad = -1;                             /* HOLD: the sounding button again lets it go */
         om_gate(0);
@@ -444,6 +477,7 @@ static void pad_down(int p)
     ui.pad = (int8_t)p;
     ui.root = proj.pad_root[proj.set][p];
     ui.type = (uint8_t)type;
+    ui.inv = proj.pad_inv[proj.set][p];
     sound_chord();
     om_gate(1);
     if (ui.armed) {                              /* SYNC START: the rhythm starts with the chord */
@@ -474,6 +508,7 @@ static void set_select(int s)
         if (ui.pad >= 0) {
             ui.root = proj.pad_root[s][ui.pad];
             ui.type = proj.pad_type[s][ui.pad];
+            ui.inv = proj.pad_inv[s][ui.pad];
             sound_chord();
         }
         mark_dirty();
@@ -599,6 +634,7 @@ static void kb_update(void)
             return;
         ui.root = (uint8_t)root;
         ui.type = (uint8_t)type;
+        ui.inv = INV_OM;
         ui.pad = -2;                             /* a chord from MIDI: no button lit */
         sound_chord();
         om_gate(1);
@@ -854,15 +890,23 @@ static void draw_rhythm(int32_t y0, int32_t h)
             uint16_t c;
             if (d < 5) {
                 on = r->drum[s] >> d & 1u;
-                c = on ? (cur ? K_TEXT : K_RHY) : (s % 4 ? K_PANEL : K_RHY_T);
+                c = on ? (cur ? K_TEXT : K_RHY) : (s % r->beat ? K_PANEL : K_RHY_T);
             } else {                               /* the bass line */
                 on = r->bass[s] == 'T' || r->bass[s] == 'O';
-                c = on ? (cur ? K_TEXT : K_CHORD) : (s % 4 ? K_PANEL : K_CHORD_T);
+                c = on ? (cur ? K_TEXT : K_CHORD) : (s % r->beat ? K_PANEL : K_CHORD_T);
             }
             cv_round(x0 + s * cw, y0 + d * rowh, cw - 1, rowh - 2, 2, c);
         }
         (void)DN;
     }
+}
+
+/* how a chord lies, under its name: a dot for root position, two and three for the inversions */
+static void inv_dots(int32_t cx, int32_t y, int inv, uint16_t c)
+{
+    int i;
+    for (i = 0; i < inv; i++)
+        cv_rect(cx - 2 * inv + 4 * i + 1, y, 2, 2, c);
 }
 
 /* the half of the track the page shows: the playing step's, if this track plays; the cursor's if not, and
@@ -892,6 +936,7 @@ static void draw_seq(int32_t y0)
         cv_text(x + 3, y + 2, &FONT_XS, t, cur ? K_WHITE : K_TEXT);
         itoa_u(SQ_BEATS(i), t);
         cv_text(x + 24 - text_w(&FONT_XS, t), y + 2, &FONT_XS, t, cur ? K_WHITE : K_DIM);
+        inv_dots(x + 13, y + 27, (int)SQ_INV(i), cur ? K_WHITE : K_CHORD);
         text_c(x + 13, y + 15, &FONT_XS, OM_TYPE_NAME[SQ_TYPE(i)], cur ? K_WHITE : K_CHORD);
     }
 }
@@ -909,6 +954,7 @@ static void draw_pads(int32_t y0)
         chord_name(proj.pad_root[proj.set][p], 0, t);
         text_c(x + 9, y0 + 1, &FONT_XS, t, on ? K_WHITE : K_TEXT);
         text_c(x + 9, y0 + 13, &FONT_XS, OM_TYPE_NAME[proj.pad_type[proj.set][p]], on ? K_WHITE : K_CHORD);
+        inv_dots(x + 9, y0 + 25, proj.pad_inv[proj.set][p], on ? K_WHITE : K_CHORD);
     }
 }
 
@@ -918,13 +964,13 @@ static void draw_main(void)
     uint32_t h = hash(2166136261u, ui.view | proj.dark << 8), s;
     for (s = 0; s < OM_NSTR; s++)
         h = hash(h, (uint32_t)(om_str_level[s] * 24.0f) | (uint32_t)om_str_note[s] << 8);
-    h = hash(hash(h, (uint32_t)ui.pad | ui.pad_sel << 8 | ui.root << 16 | ui.type << 24),
+    h = hash(hash(h, (uint32_t)(ui.pad & 255) | ui.pad_sel << 8 | ui.root << 16 | ui.type << 24 | (uint32_t)ui.inv << 28),
              (uint32_t)proj.par[P_TRANSPOSE] << 8 | (uint32_t)(om_chord_level * 8.0f));
     for (s = 0; s < NPADS; s++)
-        h = hash(h, proj.pad_root[proj.set][s] | proj.pad_type[proj.set][s] << 4);
+        h = hash(h, proj.pad_root[proj.set][s] | proj.pad_type[proj.set][s] << 4 | proj.pad_inv[proj.set][s] << 8);
     h = hash(h, proj.set | proj.plate << 8);
     if (ui.view == V_RHYTHM)
-        h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
+        h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM] | ui.rhy_n << 8);
     if (ui.view == V_SEQ) {
         for (s = 0; s < NSEQ; s++)
             h = hash(h, SQ[s][0] | SQ[s][1] << 8);
@@ -944,8 +990,16 @@ static void draw_main(void)
         const char *tn = OM_TYPE_NAME[ui.type];
         name[str_len_(name) - str_len_(tn)] = 0;        /* the root, big; the type beside it */
         x = cv_text(x, 4, &FONT_L, name, c);
-        cv_text(x + 2, 16, &FONT_B, tn, c);
-        om_voicing(ui.root, ui.type, proj.par[P_TRANSPOSE], proj.par[P_OCTAVE], hp, cn, &bn);
+        x = cv_text(x + 2, 16, &FONT_B, tn, c);
+        om_voicing_inv(ui.root, ui.type, ui.inv, proj.par[P_TRANSPOSE], proj.par[P_OCTAVE], hp, cn, &bn);
+        if (ui.inv > INV_ROOT) {                        /* an inversion: its bass note, C/E */
+            char sl[4] = "/";
+            const char *n = OM_NOTE_NAME[bn % 12];
+            sl[1] = n[0];
+            sl[2] = n[1];
+            sl[3] = 0;
+            cv_text(x + 2, 16, &FONT_B, sl, K_DIM);
+        }
         for (i = 0; i < 3; i++) {
             const char *n = OM_NOTE_NAME[cn[i] % 12];
             if (i)
@@ -1087,6 +1141,7 @@ void ui_init(void)
     ui.touched = -1;
     ui.root = proj.pad_root[proj.set][1];        /* the second button: C, as it comes */
     ui.type = proj.pad_type[proj.set][1];
+    ui.inv = proj.pad_inv[proj.set][1];
     sound_chord();
     lcd_fill(0, 0, 240, 240, K_BG);
 }
