@@ -5,16 +5,20 @@
  *   white keys     the strum plate: each one plucks a string of the chord
  *   black keys     the chord buttons; hold ENV for the minor, LFO for the 7th, both for the m7
  *   PLAY           the rhythm on / off (with SYNC START: it waits for the first chord)
- *   REC            SYNC START          ARP   CHORD HOLD          OCT- / OCT+   the plate's octave
- *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (GLO again: its second page; EDIT
- *                         steps through them all)
+ *   REC            the chord sequence: on, and its page (there, with the rhythm stopped, a chord button
+ *                  writes a step); again on its page: off. Held, the first eight chord buttons pick its track
+ *   ARP            CHORD HOLD          OCT- / OCT+   the plate's octave
+ *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (GLO again: its second and third
+ *                         page; EDIT steps through them all)
  *   SELECT tempo   ALGORITHM rhythm   PRESETS chord set   KNOB 1-4 the page's four values
  *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet) */
 
-enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, NVIEWS };
-static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2"};
+enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, V_SETUP3, V_SEQ, NVIEWS };
+static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2", "Setup 3",
+                                              "Sequence"};
 /* the four knobs of each page: a parameter, or one of these */
-enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_NONE };
+enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_SYNC,
+       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
@@ -22,6 +26,8 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, P_OCTAVE},
     {K_PLATE, K_SHIFT, P_TUNE, P_MIDI},
     {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
+    {K_SYNC, K_NONE, K_NONE, K_NONE},
+    {K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS},
 };
 
 /* Strings, in the knob's order (the saved numbers are PL_*) */
@@ -60,8 +66,13 @@ static struct {
     uint8_t view;
     uint32_t btn, keys, btn_used;
     uint32_t enc_t[NE];
-    int8_t pad;                        /* the chord button sounding (or held), -1 none, -2 a chord from MIDI */
+    int8_t pad;                        /* the chord button sounding (or held), -1 none, -2 a chord from MIDI, */
+                                       /* -3 one from the sequence */
     uint8_t pad_sel;                   /* the chord button the CHORDS page edits */
+    uint8_t seq_sel;                   /* the step the SEQUENCE page edits, and a chord button writes */
+    uint8_t seq_n, seq_drv;            /* om_seq_n as last seen; the sequence was playing */
+    uint8_t seq_on, seq_key, seq_trk;  /* what the engine was told last */
+    uint32_t seq_look;                 /* until then the page shows the cursor's half, though another plays */
     uint8_t npads_down;
     uint8_t root, type;                /* the chord (before transpose) */
     uint8_t armed;                     /* SYNC START waiting for a chord */
@@ -125,9 +136,34 @@ static void chord_name(int root, int type, char *b)
     *b = 0;
 }
 
+/* the sequence: the track in use (the one the page shows and edits), its steps (up to the first of no beats),
+ * and whether a track plays */
+#define SQ (proj.seq[proj.seq_trk])
+#define SQ_ROOT(i) (SQ[i][0] & 15u)
+#define SQ_TYPE(i) (SQ[i][0] >> 4)
+#define SQ_BEATS(i) (SQ[i][1])
+static int seq_len(void)
+{
+    int n = 0;
+    while (n < NSEQ && SQ_BEATS(n))
+        n++;
+    return n;
+}
+static int seq_plays(void) { return proj.seq_on && om_playing && proj.seq[om_seq_trk % NTRK][0][1]; }
+
 /* ------------------------------------------------------------ values --- */
 static int knob_get(int k)
 {
+    if (k == K_SYNC)
+        return proj.sync;
+    if (k == K_SQSTEP)
+        return ui.seq_sel;
+    if (k == K_SQROOT)                           /* as it sounds in this chord set's key */
+        return (int)(SQ_ROOT(ui.seq_sel) + (uint32_t)seq_key()) % 12;
+    if (k == K_SQTYPE)
+        return SQ_TYPE(ui.seq_sel);
+    if (k == K_SQBEATS)
+        return SQ_BEATS(ui.seq_sel);
     if (k < P_NPARAMS)
         return proj.par[k];
     if (k == K_PADROOT)
@@ -160,9 +196,13 @@ static void knob_range(int k, int *lo, int *hi)
     } else if (k == K_SHIFT) {
         *lo = proj.plate == PL_CHORD ? -6 : 0;
         *hi = proj.plate == PL_CHORD ? 6 : 0;
+    } else if (k == K_SQSTEP) {                  /* the steps there are, and the one after them */
+        *lo = 0;
+        *hi = seq_len() < NSEQ ? seq_len() : NSEQ - 1;
     } else {
         *lo = 0;
-        *hi = k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
+        *hi = k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
+              k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
               k == K_CVOICE ? OM_NCVOICES - 1 : 0;
     }
 }
@@ -172,18 +212,30 @@ static const char *knob_name(int k)
         return om_param_info(k)->name;
     return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" :
            k == K_PLATE ? "Strings" : k == K_DARK ? "Dark" : k == K_VOICE ? "Harp" : k == K_CVOICE ? "Chord" :
-           k == K_SHIFT ? "Shift" : "";
+           k == K_SHIFT ? "Shift" : k == K_SYNC ? "Sync start" : k == K_SQSTEP ? "Step" : k == K_SQROOT ? "Root" :
+           k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : "";
 }
 static void knob_text(int k, char *b)
 {
     int v = knob_get(k);
     if (k < P_NPARAMS) {
         om_param_text(k, v, b);
-    } else if (k == K_PADROOT) {
+    } else if (k == K_SQSTEP) {
+        itoa_u((uint32_t)v + 1u, b);
+    } else if (k == K_SQBEATS) {                 /* none: the sequence ends before this step */
+        if (v) {
+            itoa_u((uint32_t)v, b);
+        } else {
+            b[0] = 'E';
+            b[1] = 'n';
+            b[2] = 'd';
+            b[3] = 0;
+        }
+    } else if (k == K_PADROOT || k == K_SQROOT) {
         const char *n = OM_NOTE_NAME[v];
         while ((*b++ = *n++))
             ;
-    } else if (k == K_PADTYPE) {
+    } else if (k == K_PADTYPE || k == K_SQTYPE) {
         const char *n = v ? OM_TYPE_NAME[v] : "maj";
         while ((*b++ = *n++))
             ;
@@ -206,7 +258,7 @@ static void knob_text(int k, char *b)
         const char *n = k == K_VOICE ? om_voice_name(v) : om_cvoice_name(v);
         while ((*b++ = *n++))
             ;
-    } else if (k == K_DARK) {
+    } else if (k == K_DARK || k == K_SYNC) {
         const char *n = v ? "On" : "Off";
         while ((*b++ = *n++))
             ;
@@ -256,6 +308,23 @@ static void knob_set(int k, int v)
     } else if (k == K_CVOICE) {
         proj.cvoice = (uint8_t)v;
         om_cvoice(v);
+    } else if (k == K_SYNC) {                    /* SYNC START: PLAY waits for the first chord */
+        proj.sync = (uint8_t)v;
+        if (!v)
+            ui.armed = 0;
+    } else if (k == K_SQSTEP) {                  /* (the page's cursor: nothing to save) */
+        ui.seq_sel = (uint8_t)v;
+        ui.seq_look = plat_ms() + 4000u;
+        return;
+    } else if (k == K_SQROOT || k == K_SQTYPE || k == K_SQBEATS) {
+        uint8_t *st = SQ[ui.seq_sel];
+        if (k == K_SQROOT)
+            st[0] = (uint8_t)((st[0] & 0xF0u) | (uint32_t)((v - seq_key() + 12) % 12));
+        else if (k == K_SQTYPE)
+            st[0] = (uint8_t)((st[0] & 15u) | (uint32_t)v << 4);
+        else
+            st[1] = (uint8_t)v;
+        ui.seq_look = plat_ms() + 4000u;
     }
     mark_dirty();
 }
@@ -286,11 +355,75 @@ static void turn(int role, int k, int32_t e)
 /* ------------------------------------------------------------- chords --- */
 static void sound_chord(void) { om_chord(ui.root, ui.type); }
 
+/* the SEQUENCE page, the rhythm stopped: a chord button writes its chord at the cursor, which moves on. A
+ * new step takes the beats of the one before it (the first: four) */
+static void seq_write(int root, int type)
+{
+    int i = ui.seq_sel;
+    SQ[i][0] = (uint8_t)((root - seq_key() + 12) % 12 | type << 4);
+    if (!SQ_BEATS(i))
+        SQ[i][1] = i ? SQ_BEATS(i - 1) : 4;
+    if (i < NSEQ - 1)
+        ui.seq_sel++;
+    mark_dirty();
+}
+
+/* REC held and one of the first eight chord buttons: that track. It plays when the one playing comes round */
+static void seq_track(int t)
+{
+    char n[4];
+    if (t != proj.seq_trk) {
+        proj.seq_trk = (uint8_t)t;
+        ui.seq_sel = 0;
+        mark_dirty();
+    }
+    itoa_u((uint32_t)t + 1u, n);
+    say("TRACK", n);
+}
+
+/* the engine hears of the sequence being on, of its track, and of the chord set's key (PRESETS, or its second button
+ * changed: here or from the editor). While it plays, the screen follows its chords; when it stops, its
+ * chord is let go */
+static void seq_follow(void)
+{
+    int drv = seq_plays(), key = seq_key();
+    if (proj.seq_on != ui.seq_on || key != ui.seq_key) {
+        ui.seq_on = proj.seq_on;
+        ui.seq_key = (uint8_t)key;
+        om_seq(proj.seq_on, key);
+    }
+    if (proj.seq_trk != ui.seq_trk) {
+        ui.seq_trk = proj.seq_trk;
+        om_seq_track(proj.seq_trk);
+    }
+    if (ui.seq_sel > seq_len())
+        ui.seq_sel = (uint8_t)seq_len();
+    if (drv && om_seq_n != ui.seq_n) {
+        const uint8_t *st = proj.seq[om_seq_trk % NTRK][om_seq_at % NSEQ];
+        ui.root = (uint8_t)(((st[0] & 15) + key) % 12);
+        ui.type = (uint8_t)(st[0] >> 4);
+        ui.pad = -3;
+    }
+    ui.seq_n = om_seq_n;
+    if (!drv && ui.seq_drv && !ui.npads_down && !(ui.pad == -2 && kb_any())) {
+        om_gate(0);
+        ui.pad = -1;
+    }
+    ui.seq_drv = (uint8_t)drv;
+}
+
 static void pad_down(int p)
 {
     uint32_t b = ui.btn;
     int type = proj.pad_type[proj.set][p];
     int mods = (b >> B_ENV & 1u) | (b >> B_LFO & 1u) << 1;
+    if (b >> B_REC & 1u) {                       /* REC held: the sequence's track */
+        ui.btn_used |= 1u << B_REC;
+        ui.npads_down++;
+        if (p < NTRK)
+            seq_track(p);
+        return;
+    }
     if (mods)                                    /* the OM's rows: minor, 7th, both: m7 */
         type = mods == 1 ? CH_MIN : mods == 2 ? CH_7 : CH_M7;
     if (mods & 1)
@@ -299,6 +432,8 @@ static void pad_down(int p)
         ui.btn_used |= 1u << B_LFO;
     if (ui.view == V_PADS)
         ui.pad_sel = (uint8_t)p;
+    if (ui.view == V_SEQ && proj.seq_on && !om_playing)
+        seq_write(proj.pad_root[proj.set][p], type);
     if (proj.hold && ui.pad == p && !ui.npads_down && ui.root == proj.pad_root[proj.set][p] && ui.type == type) {
         ui.pad = -1;                             /* HOLD: the sounding button again lets it go */
         om_gate(0);
@@ -361,7 +496,7 @@ static void button(int b)
     case B_SEQ: set_view(V_RHYTHM); break;
     case B_FX: set_view(V_SOUND); break;
     case B_SEL: set_view(V_PADS); break;
-    case B_GLO: set_view(ui.view == V_SETUP ? V_SETUP2 : V_SETUP); break;
+    case B_GLO: set_view(ui.view == V_SETUP ? V_SETUP2 : ui.view == V_SETUP2 ? V_SETUP3 : V_SETUP); break;
     case B_EDIT: set_view((ui.view + 1) % NVIEWS); break;
     case B_PLAY:
         if (om_playing) {
@@ -370,18 +505,23 @@ static void button(int b)
         } else if (ui.armed) {
             ui.armed = 0;
             say("SYNC START", "CANCELLED");
-        } else if (proj.sync && ui.pad == -1) {
+        } else if (proj.sync && ui.pad == -1 && !(proj.seq_on && SQ_BEATS(0))) {
             ui.armed = 1;
             say("WAITING FOR", "A CHORD");
         } else {
             om_play(1);
         }
         break;
-    case B_REC:
-        proj.sync = (uint8_t)!proj.sync;
-        if (!proj.sync)
-            ui.armed = 0;
-        say("SYNC START", proj.sync ? "ON" : "OFF");
+    case B_REC:                                  /* the sequence: on, to its page, and from there off */
+        if (proj.seq_on && ui.view != V_SEQ) {
+            set_view(V_SEQ);
+            break;
+        }
+        proj.seq_on = (uint8_t)!proj.seq_on;
+        ui.armed = 0;
+        set_view(proj.seq_on ? V_SEQ : V_PLAY);
+        say("SEQUENCE", proj.seq_on ? "ON" : "OFF");
+        seq_follow();
         mark_dirty();
         break;
     case B_ARP:
@@ -540,6 +680,7 @@ static void input(void)
     if (btn || keys || ch)
         ui.act_t = plat_ms();
     midi_in();
+    seq_follow();
     if ((e = plat_enc(EN_SELECT)) != 0)
         turn(EN_SELECT, P_TEMPO, e);
     if ((e = plat_enc(EN_ALGO)) != 0)
@@ -592,7 +733,8 @@ static void draw_header(void)
     char t[24];
     int msg = plat_ms() < ui.msg_until;
     uint32_t h = hash(hash(hash(2166136261u, ui.view | proj.dark << 8), om_playing | ui.armed << 1 | proj.hold << 2 | proj.sync << 3 |
-                                                       ui.dirty << 4 | (uint32_t)msg << 5),
+                                                       ui.dirty << 4 | (uint32_t)msg << 5 | proj.seq_on << 6 | proj.seq_trk << 8 |
+                                                       om_seq_trk << 12),
                       (uint32_t)proj.par[P_RHYTHM] << 8 | (uint32_t)proj.par[P_TEMPO] | (uint32_t)om_ext << 20);
     if (msg)
         h = hash(hash(h, (uint32_t)ui.msg[0][0] << 8 | ui.msg[0][1]), ui.msg_until);
@@ -645,6 +787,27 @@ static void draw_header(void)
             int32_t w = text_w(&FONT_XS, "SYNC") + 10;
             cv_round(x, 6, w, 16, 6, K_RHY_T);
             cv_text(x + 5, 7, &FONT_XS, "SYNC", K_RHY);
+            x += w + 4;
+        }
+        if (proj.seq_on || ui.view == V_SEQ) {
+            char n[8] = "OFF";                  /* SEQ and its track; another waiting to play: 1>3 */
+            int32_t w;
+            if (proj.seq_on) {
+                char *q = n + 4;
+                n[0] = 'S';
+                n[1] = 'E';
+                n[2] = 'Q';
+                n[3] = ' ';
+                if (seq_plays() && om_seq_trk != proj.seq_trk) {
+                    *q++ = (char)('1' + om_seq_trk);
+                    *q++ = '>';
+                }
+                *q++ = (char)('1' + proj.seq_trk);
+                *q = 0;
+            }
+            w = text_w(&FONT_XS, n) + 10;
+            cv_round(x, 6, w, 16, 6, proj.seq_on ? K_HARP_T : K_PANEL);
+            cv_text(x + 5, 7, &FONT_XS, n, proj.seq_on ? K_HARP : K_DIM);
             x += w + 4;
         }
         if (ui.dirty)
@@ -702,6 +865,37 @@ static void draw_rhythm(int32_t y0, int32_t h)
     }
 }
 
+/* the half of the track the page shows: the playing step's, if this track plays; the cursor's if not, and
+ * for a moment after a knob changed something there */
+static int seq_half(void)
+{
+    if (seq_plays() && om_seq_trk == proj.seq_trk && plat_ms() >= ui.seq_look)
+        return om_seq_at >= 16;
+    return ui.seq_sel >= 16;
+}
+
+/* the sequence: two rows of eight steps (half the track), each its chord and, small, its beats; the cursor
+ * framed, the one playing filled */
+static void draw_seq(int32_t y0)
+{
+    int len = seq_len(), i0 = seq_half() * 16, i, k;
+    for (k = 0; k < 16; k++) {
+        char t[12];
+        int32_t x = 8 + (k % 8) * 28, y = y0 + (k / 8) * 32;
+        int in = (i = i0 + k) < len, cur = in && seq_plays() && om_seq_trk == proj.seq_trk && om_seq_at == i;
+        if (ui.seq_sel == i)
+            cv_round(x - 1, y - 1, 29, 32, 6, K_TEXT);
+        cv_round(x, y, 27, 30, 5, cur ? K_CHORD : in ? K_CHORD_T : K_PANEL);
+        if (!in)
+            continue;
+        chord_name((int)(SQ_ROOT(i) + (uint32_t)seq_key()) % 12, 0, t);
+        cv_text(x + 3, y + 2, &FONT_XS, t, cur ? K_WHITE : K_TEXT);
+        itoa_u(SQ_BEATS(i), t);
+        cv_text(x + 24 - text_w(&FONT_XS, t), y + 2, &FONT_XS, t, cur ? K_WHITE : K_DIM);
+        text_c(x + 13, y + 15, &FONT_XS, OM_TYPE_NAME[SQ_TYPE(i)], cur ? K_WHITE : K_CHORD);
+    }
+}
+
 static void draw_pads(int32_t y0)
 {
     int p;
@@ -731,6 +925,12 @@ static void draw_main(void)
     h = hash(h, proj.set | proj.plate << 8);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
+    if (ui.view == V_SEQ) {
+        for (s = 0; s < NSEQ; s++)
+            h = hash(h, SQ[s][0] | SQ[s][1] << 8);
+        h = hash(h, ui.seq_sel | (seq_plays() ? om_seq_at : 255u) << 8 | proj.seq_trk << 16 | om_seq_trk << 20 |
+                        (uint32_t)seq_half() << 24);
+    }
     if (h == ui.sig[1])
         return;
     ui.sig[1] = h;
@@ -762,13 +962,27 @@ static void draw_main(void)
         itoa_u(proj.set + 1u, notes + 4);
         x = 240 - 12 - text_w(&FONT_XS, notes);
         cv_text(x, 1, &FONT_XS, notes, K_CHORD);
-        if (proj.plate) {
+        if (ui.view == V_SEQ) {                         /* the track, and which of its steps show */
+            char m[16] = "TRACK 1  1-16";
+            m[6] = (char)('1' + proj.seq_trk);
+            if (seq_half()) {
+                m[9] = '1';
+                m[10] = '7';
+                m[11] = '-';
+                m[12] = '3';
+                m[13] = '2';
+                m[14] = 0;
+            }
+            cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, K_HARP);
+        } else if (proj.plate) {
             const char *m = proj.plate == PL_CHORD ? "REL SCALE" : proj.plate == PL_LINEAR ? "LINEAR" : "SCALE";
             cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, K_HARP);
         }
     }
     if (ui.view == V_RHYTHM)
         draw_rhythm(44, 62);
+    else if (ui.view == V_SEQ)
+        draw_seq(45);
     else
         draw_strings(44, 54);
     draw_pads(112);
@@ -779,6 +993,7 @@ static void draw_knobs(void)
 {
     uint32_t h = hash(2166136261u, ui.view | (uint32_t)ui.touched << 8 | ui.pad_sel << 16 | (uint32_t)proj.dark << 24),
              i;
+    h = hash(h, ui.seq_sel | (uint32_t)seq_len() << 8);
     int now_touch = plat_ms() < ui.touch_until;
     for (i = 0; i < 4; i++)
         h = hash(h, (uint32_t)knob_get(VIEW_KNOB[ui.view][i]));
@@ -826,13 +1041,13 @@ static void draw_knobs(void)
 static void leds(void)
 {
     uint32_t b = 0, k = 0, i;
-    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO, B_GLO};
+    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO, B_GLO, B_GLO, B_REC};
     b |= 1u << VIEW_BTN[ui.view];
     if (om_playing)
         b |= (om_step & 3u) < 2u ? 1u << B_PLAY : 0u;
     else if (ui.armed && (ui.frame / 8u) & 1u)
         b |= 1u << B_PLAY;
-    if (proj.sync)
+    if (proj.seq_on)
         b |= 1u << B_REC;
     if (proj.hold)
         b |= 1u << B_ARP;

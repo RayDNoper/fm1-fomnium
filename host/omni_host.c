@@ -382,6 +382,22 @@ static int expect(const char *what, const char *val)
         got = proj.hold;
     else if (!strcmp(what, "sync"))
         got = proj.sync;
+    else if (!strcmp(what, "seq"))
+        got = proj.seq_on;
+    else if (!strcmp(what, "seqsel"))
+        got = ui.seq_sel;
+    else if (!strcmp(what, "seqat"))
+        got = om_seq_at;
+    else if (!strncmp(what, "seqroot", 7))        /* seqrootN, seqtypeN, seqbeatsN: step N as saved */
+        got = SQ_ROOT(atoi(what + 7) % NSEQ);
+    else if (!strncmp(what, "seqtype", 7))
+        got = SQ_TYPE(atoi(what + 7) % NSEQ);
+    else if (!strncmp(what, "seqbeats", 8))
+        got = SQ_BEATS(atoi(what + 8) % NSEQ);
+    else if (!strcmp(what, "seqtrk"))             /* the track in use, and (seqplay) the one playing */
+        got = proj.seq_trk;
+    else if (!strcmp(what, "seqplay"))
+        got = om_seq_trk;
     else if (!strcmp(what, "shift"))
         got = proj.shift;
     else if (!strcmp(what, "cvoice"))

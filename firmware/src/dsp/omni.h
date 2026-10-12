@@ -48,7 +48,7 @@ void om_param_text(int i, int v, char *buf);   /* the value as the screen shows 
  * N cut, '-' none), the bass note (R root, 5 fifth, 3 third) and the drums (bit: BD CL HH CY SD) */
 typedef struct {
     const char *name;
-    uint8_t len, alt;
+    uint8_t len, alt, beat;                    /* beat: steps a beat (4; the Blues, in 12/8: 6) */
     const char *bass, *chord, *note;
     uint8_t drum[32];
 } om_rhythm_t;
@@ -70,6 +70,17 @@ void om_cvoice(int i);
 /* the strum plate: PL_TRIAD the chord's tones, or a scale (PL_*); shift: the chord's scale moved along the
  * keys by so many of its steps, -6..6 (PL_CHORD) */
 void om_plate(int mode, int shift);
+/* the chord sequence: OM_NTRK tracks of up to OM_NSEQ chords, each for so many beats (0: the track ends before
+ * it); one track plays round while the rhythm runs. key: semitones added to every root. A chord from a button
+ * plays until the sequence's next one. The tracks are the app's table (om_seq_tab, read as it plays): two
+ * bytes a step, root | type << 4, then the beats. Another track (om_seq_track) starts when the one playing
+ * comes round; at once if none plays */
+#define OM_NTRK 8
+#define OM_NSEQ 32
+#define OM_SEQ_BEATS 16
+extern const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
+void om_seq(int on, int key);
+void om_seq_track(int t);
 void om_gate(int on);                          /* a chord pad held (1) / released (0): the chord section */
 void om_strum(int string);                     /* pluck string 0..15 */
 void om_play(int on);                          /* the rhythm: start (from its first step) / stop */
@@ -92,6 +103,8 @@ extern volatile uint8_t om_str_note[OM_NSTR];  /* the note each string plucks, f
 extern volatile float om_chord_level, om_bass_level;
 extern volatile uint8_t om_playing, om_step, om_steps;
 extern volatile uint8_t om_drum_hit;           /* bits: drums hit since the UI last cleared it */
+extern volatile uint8_t om_seq_trk, om_seq_at, om_seq_n;   /* the sequence: the track and step playing, and a
+                                                             * count of the steps begun */
 extern volatile uint8_t om_ext;                /* 1: following an external MIDI clock */
 /* the notes a chord gives: harp strings (16, with transpose and octave), chord (3) and bass root */
 /* the plate as a scale. Fixed: each white key its own note, F3..G5 in C (transpose moves the key).

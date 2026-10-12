@@ -55,7 +55,10 @@ static int project_valid(void)
         proj.voice = 0;
         proj.cvoice = 0;
         proj.shift = 0;
+        proj.seq_on = 0;
         memset(proj.rsv, 0, sizeof proj.rsv);
+        proj.seq_trk = 0;
+        memset(proj.seq, 0, sizeof proj.seq);
     }
     proj.format = PROJ_FORMAT;
     for (i = 0; i < P_NPARAMS; i++) {
@@ -67,6 +70,13 @@ static int project_valid(void)
         for (i = 0; i < NPADS; i++)
             if (proj.pad_root[s][i] > 11u || proj.pad_type[s][i] >= CH_NTYPES)
                 return 0;
+    for (s = 0; s < NTRK; s++)
+        for (i = 0; i < NSEQ; i++)
+            if ((proj.seq[s][i][0] & 15u) > 11u || proj.seq[s][i][0] >> 4 >= CH_NTYPES ||
+                proj.seq[s][i][1] > OM_SEQ_BEATS)
+                return 0;
+    if (proj.seq_on > 1u || proj.seq_trk >= NTRK)
+        return 0;
     return proj.set < NSETS && proj.plate < PL_NMODES && proj.dark <= 1u && proj.voice < OM_NVOICES && proj.cvoice < OM_NCVOICES &&
            proj.shift >= -6 && proj.shift <= 6;
 }
@@ -82,6 +92,8 @@ int project_load(void)
     return -1;
 }
 
+int seq_key(void) { return proj.pad_root[proj.set][1]; }
+
 int project_save(void) { return plat_store_save(OBJ_PROJ, &proj, sizeof proj); }
 
 void project_apply(void)
@@ -92,4 +104,7 @@ void project_apply(void)
     om_plate(proj.plate, proj.shift);
     om_voice(proj.voice);
     om_cvoice(proj.cvoice);
+    om_seq_tab = proj.seq;
+    om_seq(proj.seq_on, seq_key());
+    om_seq_track(proj.seq_trk);
 }

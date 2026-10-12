@@ -1,0 +1,201 @@
+# the chord sequence: REC, step entry on its page, playing with the rhythm, the chord set's key, saving
+wait 200
+spin SELECT 4
+expect par5 120
+# REC: the sequence on, and its page. Nothing written yet: PLAY plays the rhythm as ever
+tap REC
+expect seq 1
+expect view 7
+expect seqsel 0
+# the rhythm stopped, a chord button writes a step and the cursor moves on: C, F, G, each four beats
+tapkey b1
+tapkey b0
+tapkey b2
+expect seqsel 3
+expect seqroot0 0
+expect seqroot1 5
+expect seqroot2 7
+expect seqbeats0 4
+expect seqbeats2 4
+expect seqbeats3 0
+# ENV held: the minor, as on the buttons. Then that step taken away again (Beats to End)
+press ENV
+tapkey b1
+release ENV
+expect seqtype3 1
+expect seqsel 4
+spin K1 -1
+spin K4 -4
+expect seqbeats3 0
+expect view 7
+# the cursor does not go past the step after the last
+spin K1 5
+expect seqsel 3
+# the second step: two beats, and by the knobs F becomes Fm and back
+spin K1 -2
+expect seqsel 1
+spin K4 -2
+expect seqbeats1 2
+spin K3 1
+expect seqtype1 1
+spin K3 -1
+spin K2 2
+expect seqroot1 7
+spin K2 -2
+expect seqroot1 5
+wait 50
+shot sequence.png
+# PLAY: C for four beats (2 s at 120), F for two, G for four, and round again
+wait 500
+expect chord_level 0
+tap PLAY
+wait 100
+expect playing 1
+expect seqat 0
+expect root 0
+expect pad -3
+wait 1700
+expect root 0
+wait 400
+expect seqat 1
+expect root 5
+wait 1000
+expect seqat 2
+expect root 7
+shot playing.png
+# a chord button plays over it until the sequence's next chord; letting it go changes nothing
+tapkey b4
+expect root 9
+wait 300
+expect bass_level >0
+wait 1500
+expect seqat 0
+expect root 0
+# PRESETS: the next set is in G, and from its next chord the sequence is too (F -> C)
+turn PRESET 1
+expect set 1
+expect root 0
+wait 2000
+expect seqat 1
+expect root 0
+wait 1000
+expect root 2
+turn PRESET -1
+# the rhythm changed as it plays: the sequence goes on
+turn ALGO 1
+wait 1000
+expect playing 1
+turn ALGO -1
+# stopped: its chord is let go
+tap PLAY
+wait 600
+expect playing 0
+expect pad -1
+expect chord_level 0
+# REC from another page goes to the sequence's; there, it switches it off
+tap HOME
+tap REC
+expect view 7
+expect seq 1
+tap REC
+expect seq 0
+expect view 0
+# off: the buttons and PLAY as ever
+tap PLAY
+wait 600
+expect pad -1
+tap PLAY
+wait 100
+# SYNC START is on Setup's third page
+tap GLO
+tap GLO
+tap GLO
+expect view 6
+spin K1 1
+expect sync 1
+spin K1 -1
+expect sync 0
+# saved with the rest
+tap REC
+tap SAVE
+reboot
+wait 100
+expect seq 1
+expect seqroot1 5
+expect seqbeats1 2
+expect seqbeats2 4
+tap PLAY
+wait 2300
+expect root 5
+tap PLAY
+wait 600
+# tracks: REC held and one of the first eight chord buttons. The third is empty; REC alone stays as it was
+press REC
+tapkey b2
+release REC
+wait 50
+expect seqtrk 2
+expect seq 1
+expect seqbeats0 0
+expect chord_level 0
+tap REC
+expect view 7
+expect seqsel 0
+# a track is up to 32 steps: eighteen here, and the page shows the half the cursor is in
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+tapkey b1
+expect seqsel 18
+expect seqbeats17 4
+expect seqbeats18 0
+wait 50
+shot second_half.png
+spin K1 -10
+wait 50
+shot first_half.png
+# the first track still holds its three chords. It plays; the third is picked and waits for its round's end
+# (C four beats, F two, G four: 5 s)
+press REC
+tapkey b0
+release REC
+expect seqtrk 0
+expect seqbeats1 2
+expect seqbeats3 0
+tap PLAY
+wait 200
+expect seqplay 0
+press REC
+tapkey b2
+release REC
+expect seqtrk 2
+wait 2500
+expect seqplay 0
+expect root 5
+shot waiting.png
+wait 2500
+expect seqplay 2
+expect seqat 0
+expect root 0
+tap PLAY
+wait 600
+expect chord_level 0
+tap SAVE
+reboot
+wait 100
+expect seqtrk 2
+expect seqbeats17 4

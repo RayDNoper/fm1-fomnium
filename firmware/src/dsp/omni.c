@@ -125,7 +125,7 @@ void om_voicing(int root, int type, int transpose, int octave, uint8_t harp[OM_N
 }
 
 /* ------------------------------------------------------------ commands --- */
-enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_PLATE, C_VOICE, C_CVOICE };
+enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_PLATE, C_VOICE, C_CVOICE, C_SEQ, C_SEQTRK };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -143,6 +143,8 @@ void om_chord(int root, int type) { post(C_CHORD, root, type); }
 void om_plate(int mode, int shift) { post(C_PLATE, mode, shift); }
 void om_voice(int i) { post(C_VOICE, i, 0); }
 void om_cvoice(int i) { post(C_CVOICE, i, 0); }
+void om_seq(int on, int key) { post(C_SEQ, on, key); }
+void om_seq_track(int t) { post(C_SEQTRK, t, 0); }
 void om_gate(int on) { post(C_GATE, on, 0); }
 void om_strum(int s) { post(C_STRUM, s, 0); }
 void om_play(int on) { post(C_PLAY, on, 0); }
@@ -156,6 +158,8 @@ volatile float om_chord_level, om_bass_level;
 volatile uint8_t om_playing, om_step, om_steps = 32;
 volatile uint8_t om_drum_hit;
 volatile uint8_t om_ext;
+volatile uint8_t om_seq_trk, om_seq_at, om_seq_n;
+const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
 
 static int16_t par[P_NPARAMS];
 static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate;
@@ -411,11 +415,57 @@ static const uint8_t GM_DRUM[OM_NDRUM] = {36, 75, 42, 51, 38};   /* BD, claves, 
 
 static void tempo_set(void) { step_len = OM_SR * 60.0f / ((float)par[P_TEMPO] * 4.0f); }
 
+/* ---- the chord sequence: a track's chords in turn, each for its beats, while the rhythm runs */
+static uint8_t seq_on, seq_key, seq_left;       /* seq_left: beats the chord has yet to play */
+static uint8_t seq_trk, seq_next;               /* the track playing, and the one to follow it */
+static int8_t seq_i = -1;
+
+static int seq_beats(int t, int i)              /* (the table is the app's: whatever it holds, a step's beats) */
+{
+    const uint8_t (*tab)[OM_NSEQ][2] = om_seq_tab;
+    int b = tab && i < OM_NSEQ ? tab[t][i][1] : 0;
+    return b > OM_SEQ_BEATS ? OM_SEQ_BEATS : b;
+}
+static int seq_drives(void) { return seq_on && om_playing && seq_beats(seq_trk, 0); }
+
+static void seq_beat(void)
+{
+    if (!seq_left) {
+        int i = seq_i + 1, c;
+        if (!seq_beats(seq_trk, i)) {            /* round again, or on to the track that waits */
+            i = 0;
+            seq_trk = seq_next;
+            om_seq_trk = seq_trk;
+            if (!seq_beats(seq_trk, 0)) {        /* (an empty one: the sequence rests) */
+                seq_i = -1;
+                return;
+            }
+        }
+        c = om_seq_tab[seq_trk][i][0];
+        seq_i = (int8_t)i;
+        seq_left = (uint8_t)seq_beats(seq_trk, i);
+        root = ((c & 15) + seq_key) % 12;
+        type = (c >> 4) < CH_NTYPES ? c >> 4 : 0;
+        retune();
+        gate = 1;
+        if (!par[P_ABC]) {                       /* no auto bass: the chord is held, as from a button */
+            chord_cmd('T');
+            bass_kind = 0;
+            bass_cmd('T', 'R');
+        }
+        om_seq_at = (uint8_t)i;
+        om_seq_n++;
+    }
+    seq_left--;
+}
+
 static void do_step(void)
 {
     const om_rhythm_t *r = &OM_RHYTHM[rh];
     uint8_t d = r->drum[step];
     int i;
+    if (seq_drives() && step % r->beat == 0)
+        seq_beat();
     for (i = 0; i < OM_NDRUM; i++)
         if (d >> i & 1u) {
             drum[i].pos = 0;
@@ -637,6 +687,8 @@ static void play_start(int from_top)
         om_steps = OM_RHYTHM[rh].len;
         step = 0;
         pulse = 0;
+        seq_i = -1;
+        seq_left = 0;
     }
     pulse_left = 0.0f;
     om_playing = 1;
@@ -695,7 +747,26 @@ static void drain(void)
             plate_shift = (int8_t)(b < -6 ? -6 : b > 6 ? 6 : b);
             retune();
             break;
+        case C_SEQTRK:                            /* when the one playing comes round; none does: now */
+            seq_next = (uint8_t)(a < OM_NTRK ? a : 0);
+            if (!seq_drives()) {
+                seq_trk = seq_next;
+                om_seq_trk = seq_trk;
+                seq_i = -1;
+                seq_left = 0;
+            }
+            break;
+        case C_SEQ:
+            if (!seq_on && a) {                   /* switched on: from its first chord, on the next beat */
+                seq_i = -1;
+                seq_left = 0;
+            }
+            seq_on = (uint8_t)(a != 0);
+            seq_key = (uint8_t)((b % 12 + 12) % 12);
+            break;
         case C_GATE:
+            if (!a && seq_drives())               /* the sequence holds the chord: a button let go changes nothing */
+                break;
             gate = a;
             if (!(om_playing && par[P_ABC])) {    /* by hand: the chord sounds while the pad is down */
                 chord_cmd(a ? 'T' : 'R');

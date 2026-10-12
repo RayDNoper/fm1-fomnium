@@ -100,9 +100,14 @@ expect chord_level 0
 expect pad -1
 tap ARP
 expect hold 0
-# SYNC START: PLAY waits for a chord
-tap REC
+# SYNC START (Setup's third page, KNOB 1): PLAY waits for a chord
+tap GLO
+tap GLO
+tap GLO
+expect view 6
+spin K1 1
 expect sync 1
+tap HOME
 tap PLAY
 expect armed 1
 expect playing 0

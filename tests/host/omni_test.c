@@ -149,6 +149,61 @@ int main(void)
         run(2);
         check("stop", !om_playing);
     }
+    {   /* the chord sequence: C for a beat, G for two, round again. A beat is four steps (0.5 s at 120),
+         * in the Blues (12/8) six (0.75 s) */
+        static const uint8_t tab[OM_NTRK][OM_NSEQ][2] = {{{0 | CH_MAJ << 4, 1}, {7 | CH_7 << 4, 2}},
+                                                         {{0}},
+                                                         {{5 | CH_MIN << 4, 1}}};
+        om_seq_tab = tab;
+        om_seq(1, 0);
+        om_play(1);
+        run(44100 / 256 / 4);
+        check("sequence: its first chord from the first step", om_seq_at == 0 && om_bass_level > 0.0f);
+        run(44100 / 256 / 2);
+        check("sequence: the second after a beat", om_seq_at == 1 && om_seq_n == 2);
+        run(44100 / 256);
+        check("sequence: round to the first after its two", om_seq_at == 0 && om_seq_n == 3);
+        om_gate(0);
+        run(8);                                        /* (the bass's last note ends) */
+        {
+            int b, on = 0;
+            for (b = 0; b < 44100 / 256 / 2; b++) {
+                float was = om_bass_level;
+                run(1);
+                on |= om_bass_level > was;
+            }
+            check("sequence: a button let go does not stop it (the bass plays on)", on);
+        }
+        om_seq_track(2);                               /* another track: when this one comes round */
+        run(2);
+        check("sequence: another track waits", om_seq_trk == 0);
+        {
+            int b;
+            for (b = 0; b < 2 * 44100 / 256 && om_seq_trk != 2; b++)
+                run(1);
+            check("sequence: and plays from the round's end (Fm)", om_seq_trk == 2 && om_seq_at == 0 &&
+                                                                     om_str_note[0] % 12 == 5);
+        }
+        om_seq_track(1);                               /* an empty one: the sequence rests */
+        run(44100 / 256);
+        check("sequence: an empty track rests", om_seq_trk == 1);
+        om_play(0);
+        om_seq_track(0);
+        om_seq(1, 2);
+        om_set(P_RHYTHM, 7);
+        run(2);
+        om_play(1);
+        run(44100 / 256 * 6 / 10);
+        check("sequence, Blues: the first chord still at 0.6 s", om_seq_at == 0);
+        run(44100 / 256 * 3 / 10);
+        check("sequence, Blues: the second at 0.9 s", om_seq_at == 1);
+        check("sequence: the key moves its chords (G7 in D: A7)", om_str_note[0] % 12 == 9);
+        om_play(0);
+        om_seq(0, 0);
+        om_gate(0);
+        om_set(P_RHYTHM, 0);
+        run(2);
+    }
     {   /* everything at once, levels up: finite and inside full scale */
         int i, s;
         om_set(P_VOICE1, 100);
