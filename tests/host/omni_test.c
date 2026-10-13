@@ -267,6 +267,61 @@ int main(void)
     om_strum(3);
     run(2);
     check("MIDI out off: nothing sent", midi_n == 0);
+    {   /* a DX7 bank's patches as voices: one patch (all six operators heard, the first with a level), the
+         * rest of the bank empty */
+        static uint8_t bank[OM_NDX][OM_DX_BYTES];
+        uint8_t *o = bank[0] + 17 * 5;            /* op 1: the bank has op 6 first */
+        int i, live;
+        memset(o, 99, 7);                         /* rates, and levels 1..3: it holds */
+        o[14] = 99;
+        o[15] = 2;                                /* the note's own pitch */
+        memset(bank[0] + 106, 50, 4);             /* the pitch envelope: level */
+        bank[0][110] = 31;
+        bank[0][117] = 24;
+        memcpy(bank[0] + 118, "TEST      ", 10);
+        om_init();
+        check("DX: no bank, no patch", !om_voice_ok(OM_NSV) && !om_cvoice_ok(OM_NCV) && om_voice_ok(OM_NSV - 1));
+        om_dx_tab = (const uint8_t (*)[OM_DX_BYTES])bank;
+        check("DX: the patch is there, named; the next is not",
+              om_voice_ok(OM_NSV) && om_cvoice_ok(OM_NCV) && !om_voice_ok(OM_NSV + 1) &&
+                  !strcmp(om_voice_name(OM_NSV), "TEST") && !strcmp(om_cvoice_name(OM_NCV), "TEST"));
+        om_set(P_REVERB, 0);
+        om_set(P_SUSTAIN, 100);
+        om_voice(OM_NSV);
+        om_chord(0, CH_MAJ);
+        run(1);
+        peak = 0.0f;
+        om_strum(8);
+        run(20);
+        check("DX: a string sounds", peak > 0.02f && finite_ok);
+        for (i = 0; i < OM_NSTR; i++) {
+            om_strum(i);
+            run(4);
+        }
+        run(40);
+        for (i = 0, live = 0; i < OM_NSTR; i++)
+            live += om_str_level[i] > 0.0f;
+        check("DX: of 16 strings plucked, 9 sound", live == OM_DX_POLY);
+        check("DX: the last ones plucked", om_str_level[15] > 0.0f && om_str_level[7] > 0.0f && om_str_level[6] == 0.0f);
+        om_voice(OM_NSV + 1);                     /* an empty patch: the harp */
+        run(2);
+        peak = 0.0f;
+        om_strum(8);
+        run(20);
+        check("DX: an empty patch plays as the harp", peak > 0.02f);
+        om_voice(0);
+        om_cvoice(OM_NCV);
+        run(40);
+        peak = 0.0f;
+        om_gate(1);
+        run(40);
+        check("DX: the chord sounds", peak > 0.02f && om_chord_level > 0.0f && finite_ok);
+        om_gate(0);
+        run(200);
+        check("DX: and ends when let go", om_chord_level == 0.0f);
+        om_cvoice(0);
+        om_dx_tab = 0;
+    }
     printf("%s\n", bad ? "OMNI TEST FAILED" : "omni test passed");
     return bad != 0;
 }

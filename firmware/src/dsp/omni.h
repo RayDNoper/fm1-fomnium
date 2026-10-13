@@ -74,13 +74,24 @@ void om_chord(int root, int type);             /* the chord the harp, chord and 
  * chord, and, for the last two, in the bass (C/E, C/G) */
 enum { INV_OM, INV_ROOT, INV_1ST, INV_2ND, INV_N };
 void om_chord_inv(int root, int type, int inv);
-/* the strings' voice: 0 the OM's harp (Voice 1 + Voice 2), 1.. an FM sound (om_voice_name; Voice 1: its level) */
-#define OM_NVOICES 15
+/* after the voice it comes with, for the strings (the harp) and for the chord (the organ): the OM_NDX patches of a DX7 bank, the
+ * app's table (om_dx_tab, read when a note begins): each OM_DX_BYTES as a bank's SysEx holds it, six operators
+ * and all. One that is empty (om_voice_ok: 0) plays as the harp, the organ. With one of them no more than
+ * OM_DX_POLY strings sound: the one plucked longest ago gives way */
+#define OM_NDX 32
+#define OM_DX_BYTES 128
+#define OM_DX_POLY 9
+extern const uint8_t (*volatile om_dx_tab)[OM_DX_BYTES];
+int om_voice_ok(int i);
+int om_cvoice_ok(int i);
+/* the strings' voice: 0 the OM's harp (Voice 1 + Voice 2), 1.. a patch of the bank (Voice 1: its level) */
+#define OM_NSV 1                               /* (what it comes with: the harp) */
+#define OM_NVOICES (OM_NSV + OM_NDX)
 const char *om_voice_name(int i);
 void om_voice(int i);
-/* the chord's voice: 0 the OM's organ, 1.. an FM sound: eleven that die away, seven that hold while the
- * chord does, then a DX9's (the bass stays as it is). The strings have those of them that die away */
-#define OM_NCVOICES 30
+/* the chord's voice: 0 the OM's organ, 1.. a patch of the bank (the bass stays as it is) */
+#define OM_NCV 1
+#define OM_NCVOICES (OM_NCV + OM_NDX)
 const char *om_cvoice_name(int i);
 void om_cvoice(int i);
 /* the strum plate: PL_TRIAD the chord's tones, or a scale (PL_*); shift: the chord's scale moved along the

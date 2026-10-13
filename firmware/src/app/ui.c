@@ -18,7 +18,7 @@ static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords
                                               "Sequence"};
 /* the four knobs of each page: a parameter, or one of these */
 enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_SYNC,
-       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_NONE };
+       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_LOAD, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
@@ -26,7 +26,7 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, K_PADINV},
     {K_PLATE, K_SHIFT, P_TUNE, P_MIDI},
     {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
-    {K_SYNC, K_BASS, K_NONE, K_NONE},
+    {K_SYNC, K_BASS, K_NONE, K_LOAD},
     {K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS},
 };
 
@@ -160,6 +160,8 @@ static int knob_get(int k)
         return proj.sync;
     if (k == K_BASS)                             /* 50: the bass as it comes */
         return proj.bass + 50;
+    if (k == K_LOAD)                             /* what the sound takes of the time there is for it (shown only) */
+        return plat_cpu_pct() > 100u ? 100 : (int)plat_cpu_pct();
     if (k == K_SQSTEP)
         return ui.seq_sel;
     if (k == K_SQROOT)                           /* as it sounds in this chord set's key */
@@ -207,7 +209,7 @@ static void knob_range(int k, int *lo, int *hi)
         *hi = seq_len() < NSEQ ? seq_len() : NSEQ - 1;
     } else {
         *lo = 0;
-        *hi = k == K_BASS ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
+        *hi = k == K_BASS || k == K_LOAD ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
               k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
               k == K_CVOICE ? OM_NCVOICES - 1 : 0;
     }
@@ -219,7 +221,8 @@ static const char *knob_name(int k)
     return k == K_PADROOT ? "Root" : k == K_PADTYPE ? "Type" : k == K_LEDS ? "Lights" :
            k == K_PLATE ? "Strings" : k == K_DARK ? "Dark" : k == K_VOICE ? "Harp" : k == K_CVOICE ? "Chord" :
            k == K_SHIFT ? "Shift" : k == K_SYNC ? "Sync start" : k == K_SQSTEP ? "Step" : k == K_SQROOT ? "Root" :
-           k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : k == K_PADINV ? "Invert" : k == K_BASS ? "Bass" : "";
+           k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : k == K_PADINV ? "Invert" : k == K_BASS ? "Bass" :
+           k == K_LOAD ? "Load" : "";
 }
 static void knob_text(int k, char *b)
 {
@@ -270,6 +273,12 @@ static void knob_text(int k, char *b)
         const char *n = k == K_VOICE ? om_voice_name(v) : om_cvoice_name(v);
         while ((*b++ = *n++))
             ;
+    } else if (k == K_LOAD) {
+        itoa_u((uint32_t)v, b);
+        while (*b)
+            b++;
+        b[0] = '%';
+        b[1] = 0;
     } else if (k == K_DARK || k == K_SYNC) {
         const char *n = v ? "On" : "Off";
         while ((*b++ = *n++))
@@ -286,16 +295,21 @@ static void knob_text(int k, char *b)
 static void sound_chord(void);
 /* a rhythm of the player's own that holds nothing: the knobs pass over it */
 static int rhy_empty(int i) { return i >= om_nrhythm() && !proj.rhy[i - om_nrhythm()][0]; }
+/* and a DX7 patch that is not there */
+static int knob_skips(int k, int i)
+{
+    return k == P_RHYTHM ? rhy_empty(i) : k == K_VOICE ? !om_voice_ok(i) : k == K_CVOICE ? !om_cvoice_ok(i) : 0;
+}
 
 static void knob_set(int k, int v)
 {
     int lo, hi;
     knob_range(k, &lo, &hi);
-    if (k == P_RHYTHM) {                         /* so many rhythms on, the empty ones not counted */
-        int t = proj.par[k], d = v > t ? 1 : -1, n = v > t ? v - t : t - v;
+    if (k == P_RHYTHM || k == K_VOICE || k == K_CVOICE) {   /* so many on, the empty ones not counted */
+        int t = knob_get(k), d = v > t ? 1 : -1, n = v > t ? v - t : t - v;
         while (n--) {
             int nx = t + d;
-            while (nx >= lo && nx <= hi && rhy_empty(nx))
+            while (nx >= lo && nx <= hi && knob_skips(k, nx))
                 nx += d;
             if (nx < lo || nx > hi)
                 break;
@@ -379,7 +393,7 @@ static int32_t accel(int role, int32_t s, int range)
 static void turn(int role, int k, int32_t e)
 {
     int lo, hi;
-    if (!e || k == K_NONE)
+    if (!e || k == K_NONE || k == K_LOAD)
         return;
     knob_range(k, &lo, &hi);
     knob_set(k, knob_get(k) + accel(role, e, hi - lo));

@@ -4,7 +4,8 @@
 // (web/EDITOR_PROTOCOL.md), over anything that can carry a message (Web MIDI, the emulator).
 
 export const HEADER = [0x7D, 0x46, 0x4F];           // the non-commercial id, "FO"
-export const CMD = { INFO: 1, STATE: 2, SETS: 3, PAD: 4, SET: 5, PUT: 6, SETS2: 7, RHY: 8, RHYPUT: 9, RHYSEL: 10, RSTATE: 11, PLAY: 12 };
+export const CMD = { INFO: 1, STATE: 2, SETS: 3, PAD: 4, SET: 5, PUT: 6, SETS2: 7, RHY: 8, RHYPUT: 9, RHYSEL: 10, RSTATE: 11, PLAY: 12,
+                     DX: 13, DXPUT: 14, DXUSE: 15 };
 export const NOTES = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"];
 export const TYPES = ["", "m", "7", "M7", "m7", "dim", "aug", "sus4", "add9"];
 export const TYPE_LABEL = ["maj", "m", "7", "M7", "m7", "dim", "aug", "sus4", "add9"];
@@ -62,6 +63,7 @@ export class Link {
     this.protocol = 1;                                // 2: the FM-1 knows how a chord lies (inv); 3: the rhythms
     this.nrhythm = 0;                                 // the rhythms it comes with,
     this.nuser = 0;                                   // and the player's own after them
+    this.ndx = 0;                                     // the patches of its DX7 bank (protocol 4)
   }
 
   receive(bytes) {
@@ -97,6 +99,7 @@ export class Link {
     this.nsets = a[1];
     this.npads = a[2];
     if (a[0] >= 3 && end >= 0 && a.length >= end + 3) { this.nrhythm = a[end + 1]; this.nuser = a[end + 2]; }
+    if (a[0] >= 4 && end >= 0 && a.length >= end + 4) this.ndx = a[end + 3];
     return { protocol: a[0], nsets: a[1], npads: a[2], ntypes: a[3],
              version: String.fromCharCode(...a.slice(4, end < 0 ? a.length : end)) };
   }
@@ -193,6 +196,53 @@ Link.prototype.rstate = async function () {
   if (a.length !== 6) throw new Error("a broken reply");
   return { rhythm: a[0], playing: !!a[1], sig: (a[2] | a[3] << 7 | a[4] << 14 | a[5] << 21) >>> 0 };
 };
+
+// ---- the DX7 bank (protocol 4): 32 patches, each the 128 bytes a bank's SysEx holds for it (six operators;
+// its name in the last ten). They are voices for the strings and the chord, after the ones Jambox comes with.
+export const DX_BYTES = 128;
+export const DX_PATCHES = 32;
+const DX_CARRIERS = [5, 5, 9, 9, 21, 21, 5, 5, 5, 9, 9, 5, 5, 5, 5, 1, 1, 1, 25, 11, 27, 29, 27, 31, 31, 11, 11, 37, 23, 39, 31, 63];
+
+// a patch holds a sound when an operator that is heard has a level (as the firmware has it)
+export function dxEmpty(p) {
+  const car = DX_CARRIERS[p[110] & 31];
+  for (let i = 0; i < 6; i++) if (car >> i & 1 && p[17 * (5 - i) + 14]) return false;
+  return true;
+}
+export function dxName(p) {
+  return String.fromCharCode(...Array.from(p.slice(118, 128), (c) => (c < 32 || c > 126 || c === 92 ? 32 : c))).trim();
+}
+
+// a DX7 32-voice bank (.syx) -> its 32 patches; an Error when the file is something else
+export function parseBank(bytes) {
+  const b = Uint8Array.from(bytes);
+  if (b.length !== 4104 || b[0] !== 0xF0 || b[1] !== 0x43 || (b[2] & 0x70) !== 0 || b[3] !== 9 || b[4] !== 0x20 || b[5] !== 0 || b[4103] !== 0xF7)
+    throw new Error(b[0] === 0xF0 && b[1] === 0x43 && b[3] === 0 ? "one DX7 voice, not a bank of 32" : "not a DX7 bank of 32 voices");
+  return Array.from({ length: DX_PATCHES }, (_, i) => b.slice(6 + DX_BYTES * i, 6 + DX_BYTES * (i + 1)).map((v) => v & 0x7F));
+}
+// and back: the patches as a bank's file (with its checksum)
+export function bankFile(patches) {
+  const b = new Uint8Array(4104);
+  b.set([0xF0, 0x43, 0, 9, 0x20, 0]);
+  let sum = 0;
+  patches.forEach((p, i) => p.forEach((v, k) => { b[6 + DX_BYTES * i + k] = v & 0x7F; sum += v & 0x7F; }));
+  b[4102] = -sum & 0x7F;
+  b[4103] = 0xF7;
+  return b;
+}
+
+Link.prototype.dx = async function (index) {
+  const a = await this.request(CMD.DX, [index]);
+  if (a.length !== 1 + DX_BYTES || a[0] !== index) throw new Error("a broken reply");
+  return Uint8Array.from(a.slice(1));
+};
+// a patch written (128 zeros: taken away)
+Link.prototype.putDx = async function (index, patch) {
+  const a = await this.request(CMD.DXPUT, [index, ...Array.from(patch, (v) => v & 0x7F)], 1500);
+  if (a[0] !== index || a[1] !== 0) throw new Error("the FM-1 refused the patch");
+};
+// a patch as the voice of the strings (chord: false) or of the chord
+Link.prototype.useDx = async function (chord, index) { return (await this.request(CMD.DXUSE, [chord ? 1 : 0, index]))[1]; };
 
 // a rhythm as a file: a line of text a row, a character a step ("x" a drum's hit; the bass and chord as
 // STEP_CMD has them, the bass's notes as BASS_NOTE), so it can be read and written by hand

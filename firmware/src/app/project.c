@@ -2,6 +2,23 @@
 /* OMNI project: one flash object (OBJ_PROJ). A project of another format, or none, gives the
  * defaults. Part of the unity build, after app.h. */
 project_t proj;
+uint8_t dx_bank[OM_NDX][OM_DX_BYTES];
+static uint8_t bank_dirty;
+void bank_touch(void) { bank_dirty = 1; }
+
+static void bank_load(void)
+{
+    uint32_t h, i;
+    memset(dx_bank, 0, sizeof dx_bank);
+    for (h = 0; h < 2u; h++) {
+        uint8_t *p = dx_bank[h * (OM_NDX / 2)];
+        if (plat_store_load(OBJ_BANK0 + h, p, BANK_HALF) != (int)BANK_HALF)
+            memset(p, 0, BANK_HALF);
+        for (i = 0; i < BANK_HALF; i++)
+            p[i] &= 0x7Fu;
+    }
+    bank_dirty = 0;
+}
 
 /* the factory chord buttons, left to right, in C: the primary chords on the first group of three,
  * their relative minors on the next two, then the dominants that lead into them */
@@ -63,6 +80,10 @@ static int project_valid(void)
         memset(proj.pad_inv, 0, sizeof proj.pad_inv);
         memset(proj.rhy, 0, sizeof proj.rhy);
     }
+    if (proj.format == 3u) {                     /* before the bank's patches came 19 and 34 FM sounds, now gone */
+        proj.voice = proj.voice >= 20u ? (uint8_t)(proj.voice - 19u) : 0u;
+        proj.cvoice = proj.cvoice >= 35u ? (uint8_t)(proj.cvoice - 34u) : 0u;
+    }
     proj.format = PROJ_FORMAT;
     for (i = 0; i < P_NPARAMS; i++) {
         const om_param_t *p = om_param_info(i);
@@ -95,6 +116,7 @@ int project_load(void)
 {
     int n;
     memset(&proj, 0, sizeof proj);
+    bank_load();
     n = plat_store_load(OBJ_PROJ, &proj, sizeof proj);
     if (n >= 8 && project_valid())
         return 0;
@@ -104,7 +126,18 @@ int project_load(void)
 
 int seq_key(void) { return proj.pad_root[proj.set][1]; }
 
-int project_save(void) { return plat_store_save(OBJ_PROJ, &proj, sizeof proj); }
+int project_save(void)
+{
+    int rc = plat_store_save(OBJ_PROJ, &proj, sizeof proj);
+    if (rc == 0 && bank_dirty) {
+        rc = plat_store_save(OBJ_BANK0, dx_bank[0], BANK_HALF);
+        if (rc == 0)
+            rc = plat_store_save(OBJ_BANK1, dx_bank[OM_NDX / 2], BANK_HALF);
+        if (rc == 0)
+            bank_dirty = 0;
+    }
+    return rc;
+}
 
 void project_apply(void)
 {
@@ -112,6 +145,11 @@ void project_apply(void)
     for (i = 0; i < P_NPARAMS; i++)
         om_set(i, proj.par[i]);
     om_plate(proj.plate, proj.shift);
+    om_dx_tab = dx_bank;
+    if (!om_voice_ok(proj.voice))                /* a patch that is not there (any more): the harp, the organ */
+        proj.voice = 0;
+    if (!om_cvoice_ok(proj.cvoice))
+        proj.cvoice = 0;
     om_voice(proj.voice);
     om_cvoice(proj.cvoice);
     om_bass(proj.bass + 50);

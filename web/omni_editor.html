@@ -87,14 +87,16 @@
   #grid button.faint { color: var(--muted); }
   #grid button:disabled { opacity: 1; cursor: default; }
   #grid .sep { grid-column: 1 / -1; height: 6px; }
+  #dxedit { background: var(--panel); border-radius: 12px; padding: 14px 16px 16px; margin: 10px 0 0; }
+  #dxedit h2 span { color: var(--muted); font-weight: 600; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <h1>Jambox FM-1 editor</h1>
-  <p class="lede">The chords on the black keys, eight sets of them, and rhythms of your own beside the ones Jambox FM-1 comes with.
-    Change them here and the FM-1 plays them at once.</p>
+  <p class="lede">The chords on the black keys, eight sets of them, rhythms of your own beside the ones Jambox FM-1 comes with, and
+    a DX7 bank's sounds for the strings and the chord. Change them here and the FM-1 plays them at once.</p>
 
   <div class="bar">
     <button class="pill" id="usb" type="button">Connect the FM-1</button>
@@ -106,6 +108,7 @@
     <div class="tabs" role="tablist">
       <button type="button" role="tab" id="tabsets" aria-selected="true">Chord sets</button>
       <button type="button" role="tab" id="tabrhy" aria-selected="false">Rhythms</button>
+      <button type="button" role="tab" id="tabdx" aria-selected="false">FM sounds</button>
     </div>
 
    <div id="panesets">
@@ -160,6 +163,31 @@
         rhythm and work by ear.</p>
     </div>
    </div>
+
+   <div id="panedx" hidden>
+    <p class="small" id="dxold" hidden>This Jambox FM-1 is an older one: update it (or reload the emulator) to give it a DX7 bank's sounds.</p>
+    <div id="dxwork">
+      <div class="rlist" id="dxlist" role="group" aria-label="The bank's sounds"></div>
+      <section id="dxedit">
+        <h2 id="dxtitle"></h2>
+        <div class="bar" style="margin-top:0">
+          <button class="pill" id="dxstr" type="button">Play it on the strings</button>
+          <button class="pill" id="dxchord" type="button">Play it as the chord</button>
+          <button class="pill quiet" id="dxdel" type="button">Take away</button>
+        </div>
+      </section>
+      <div class="bar">
+        <button class="pill quiet" id="dxload" type="button">Load a DX7 bank (.syx)</button>
+        <button class="pill quiet" id="dxsave" type="button">Save as a .syx file</button>
+        <button class="pill quiet" id="dxclear" type="button">Empty the bank</button>
+        <input type="file" id="dxfile" accept=".syx,.SYX,application/octet-stream" hidden>
+      </div>
+      <p class="small">A bank is a DX7's 32 sounds in one .syx file (4104 bytes), six operators each. On the FM-1 they follow the
+        Omnichord's own voice: Setup 2 (GLO twice), Harp and Chord, turned up. They are played as the patch has them, but
+        without its touch; with one of them no more than nine strings sound at once. The bank stays on the FM-1, saved
+        with the rest.</p>
+    </div>
+   </div>
   </div>
 </main>
 <script>
@@ -171,6 +199,7 @@ let link = null, close = null, poll = 0, misses = 0;
 let sets = null, inUse = 0, sig = -1, sel = { set: 0, pad: 0 };
 let INV_NOTE = "";
 let rhy = [], rsel = 0, rInUse = 0, rPlaying = false, rsig = -1;   // the rhythms: all of them, the one shown, the FM-1's
+let dx = [], dxsel = 0;                              // the DX7 bank's patches, the one shown
 
 function say(text, bad) {
   $("status").textContent = text;
@@ -234,13 +263,98 @@ const shown = () => (rhy[rsel].len ? rhy[rsel] : { ...blankRhythm(), blank: true
 const rname = (i) => rhy[i].name || (isOwn(i) ? `User ${i - link.nrhythm + 1}` : "");
 
 function tab(which) {
-  $("tabsets").setAttribute("aria-selected", which === "sets");
-  $("tabrhy").setAttribute("aria-selected", which === "rhy");
-  $("panesets").hidden = which !== "sets";
-  $("panerhy").hidden = which !== "rhy";
+  for (const t of ["sets", "rhy", "dx"]) {
+    $("tab" + t).setAttribute("aria-selected", which === t);
+    $("pane" + t).hidden = which !== t;
+  }
 }
 $("tabsets").onclick = () => tab("sets");
 $("tabrhy").onclick = () => tab("rhy");
+$("tabdx").onclick = () => tab("dx");
+
+// ---- the DX7 bank's page
+function drawDx() {
+  const has = link && link.protocol >= 4 && dx.length;
+  $("dxold").hidden = !!has;
+  $("dxwork").hidden = !has;
+  if (!has) return;
+  const box = $("dxlist");
+  box.textContent = "";
+  dx.forEach((p, i) => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "own" + (dxEmpty(p) ? "" : " full") + (i === dxsel ? " sel" : "");
+    b.textContent = `${i + 1} ${dxEmpty(p) ? "\u2013" : dxName(p) || "DX"}`;
+    b.onclick = () => { dxsel = i; drawDx(); };
+    box.append(b);
+  });
+  const none = dxEmpty(dx[dxsel]);
+  $("dxtitle").innerHTML = "";
+  $("dxtitle").append(`Sound ${dxsel + 1} `);
+  const sp = document.createElement("span");
+  sp.textContent = none ? "empty" : dxName(dx[dxsel]) || "DX";
+  $("dxtitle").append(sp);
+  $("dxstr").disabled = $("dxchord").disabled = $("dxdel").disabled = none;
+  $("dxsave").disabled = $("dxclear").disabled = dx.every(dxEmpty);
+}
+
+async function readDx() {
+  dx = [];
+  if (link.protocol < 4) return;
+  const all = [];
+  for (let i = 0; i < link.ndx; i++) all.push(await link.dx(i));
+  dx = all;
+}
+
+async function sendDx(patches, what) {
+  try {
+    for (let i = 0; i < patches.length; i++) {
+      say(`Sending ${what}: ${i + 1} of ${patches.length}...`);
+      await link.putDx(i, patches[i]);
+      dx[i] = Uint8Array.from(patches[i]);
+    }
+    return true;
+  } catch (e) { lost(e); return false; }
+}
+
+$("dxstr").onclick = async () => {
+  try { await link.useDx(false, dxsel); say(`The strings play ${dxName(dx[dxsel]) || "sound " + (dxsel + 1)}.`); } catch (e) { lost(e); }
+};
+$("dxchord").onclick = async () => {
+  try { await link.useDx(true, dxsel); say(`The chord plays ${dxName(dx[dxsel]) || "sound " + (dxsel + 1)}.`); } catch (e) { lost(e); }
+};
+$("dxdel").onclick = async () => {
+  if (!confirm(`Take ${dxName(dx[dxsel]) || "this sound"} out of the bank on the FM-1?`)) return;
+  try {
+    await link.putDx(dxsel, new Uint8Array(DX_BYTES));
+    dx[dxsel] = new Uint8Array(DX_BYTES);
+    drawDx();
+  } catch (e) { lost(e); }
+};
+$("dxclear").onclick = async () => {
+  if (!confirm("Take all the bank's sounds off the FM-1?")) return;
+  if (await sendDx(dx.map(() => new Uint8Array(DX_BYTES)), "an empty bank")) say("The bank on the FM-1 is empty.");
+  drawDx();
+};
+$("dxsave").onclick = () => {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bankFile(dx)], { type: "application/octet-stream" }));
+  a.download = "jambox-bank.syx";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+$("dxload").onclick = () => $("dxfile").click();
+$("dxfile").onchange = async () => {
+  const f = $("dxfile").files[0];
+  $("dxfile").value = "";
+  if (!f) return;
+  let next;
+  try { next = parseBank(new Uint8Array(await f.arrayBuffer())); }
+  catch (e) { say(`${f.name}: ${e.message}.`, true); return; }
+  if (!dx.every(dxEmpty) && !confirm("Replace the bank on the FM-1 with this file's 32 sounds?")) return;
+  if (await sendDx(next, f.name)) say(`${f.name} is on the FM-1: its sounds are on Setup 2 (Harp, Chord).`);
+  drawDx();
+};
 
 function drawRhythms() {
   const own = link && link.protocol >= 3 && rhy.length;
@@ -461,9 +575,13 @@ async function connected(l, closer, what) {
   rhy = [];
   rsig = -1;
   rsel = 0;
+  dx = [];
+  dxsel = 0;
   await look();
   if (!sets) { link = close = null; throw new Error("no reply"); }
   drawRhythms();
+  try { await readDx(); } catch { dx = []; }
+  drawDx();
   $("work").hidden = false;
   say(what);
   poll = setInterval(look, 700);

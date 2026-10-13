@@ -1,9 +1,9 @@
 # the editor link (app/editor.c, web/EDITOR_PROTOCOL.md): SysEx 7D 46 4F <cmd> ...
 wait 200
-# INFO: protocol 3, 8 sets, 11 buttons, 9 types, then the version
+# INFO: protocol 4, 8 sets, 11 buttons, 9 types, then the version
 sysex 7D 46 4F 01
 expect sx3 1
-expect sx4 3
+expect sx4 4
 expect sx5 8
 expect sx6 11
 expect sx7 9
@@ -125,3 +125,33 @@ expect par4 10
 sysex 00 59 11 00
 expect sxlen 0
 shot editor.png
+# the DX7 bank: none there, so no patch to use; one put (all its operators heard, the first with a level)
+sysex 7D 46 4F 0F 00 00
+expect sxlen 0
+sysex 7D 46 4F 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 63 63 63 63 63 63 63 00 00 00 00 00 00 00 63 02 00 00 00 00 00 32 32 32 32 1F 00 00 00 00 00 00 18 54 45 53 54 20 20 20 20 20 20
+expect sxlen 6
+sysex 7D 46 4F 0D 00
+expect sxlen 133
+expect sx4 0
+expect sx104 99
+expect sx123 84
+# as the strings' voice (after the harp), and the chord's (after the organ)
+sysex 7D 46 4F 0F 00 00
+expect voice 1
+sysex 7D 46 4F 0F 01 00
+expect cvoice 1
+sysex 7D 46 4F 0F 00 05
+expect sxlen 0
+# saved with the rest
+tap SAVE
+reboot
+wait 100
+expect voice 1
+expect cvoice 1
+sysex 7D 46 4F 0D 00
+expect sx104 99
+# taken away: the harp and the organ again
+sysex 7D 46 4F 0E 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+expect sxlen 6
+expect voice 0
+expect cvoice 0

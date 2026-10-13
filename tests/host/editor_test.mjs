@@ -3,7 +3,8 @@
 // link's messages going in and out as SysEx (app/editor.c).
 //   node tests/host/editor_test.mjs build/emu/omni.wasm
 import fs from "fs";
-import { Link, chordName, parseChord, setsToFile, fileToSets, frame, parse, CMD, blankRhythm, rhythmToFile, fileToRhythm } from "../../web/fomni_ed.js";
+import { Link, chordName, parseChord, setsToFile, fileToSets, frame, parse, CMD, blankRhythm, rhythmToFile, fileToRhythm,
+         parseBank, bankFile, dxName, dxEmpty, DX_BYTES } from "../../web/fomni_ed.js";
 
 const wasm = fs.readFileSync(process.argv[2]);
 let mem;
@@ -32,7 +33,7 @@ const link = new Link((bytes) => {
 }, { timeout: 50 });
 
 const info = await link.info();
-ok(info.protocol === 3 && link.nrhythm === 11 && link.nuser === 8 && info.nsets === 8 && info.npads === 11 && info.ntypes === 9 && info.version.length > 0, `info: ${JSON.stringify(info)}`);
+ok(info.protocol === 4 && link.ndx === 32 && link.nrhythm === 11 && link.nuser === 8 && info.nsets === 8 && info.npads === 11 && info.ntypes === 9 && info.version.length > 0, `info: ${JSON.stringify(info)}`);
 
 let d = await link.sets();
 ok(d.set === 0 && d.sets.length === 8 && d.sets[0].map(chordName).join(" ") === "F C G Dm Am Em G7 E7 D7 Bb A7", "set 1 is the factory one: " + d.sets[0].map(chordName).join(" "));
@@ -103,6 +104,36 @@ try { fileToRhythm(rhythmToFile(beat3).replace("TR", "TZ")); } catch { refusedR+
 ok(refusedR === 3, "an empty rhythm is not used; a rhythm or a file out of range is refused");
 await link.putRhythm(0, { ...blankRhythm(), len: 0 });
 ok((await link.rhythm(11)).len === 0, "the rhythm taken away");
+
+// the DX7 bank: a bank's file made here (two sounds, the rest empty), sent, read back, used, taken away
+const patch = (name) => {
+  const p = new Uint8Array(DX_BYTES);
+  p.fill(99, 85, 92);                                // op 1 (the last in a patch): rates, and levels 1..3
+  p[99] = 99; p[100] = 2;                            // its level; the note's own pitch
+  p.fill(50, 106, 110);
+  p[110] = 31; p[117] = 24;
+  p.set(Array.from(name.padEnd(10), (c) => c.charCodeAt(0)), 118);
+  return p;
+};
+const file = bankFile(Array.from({ length: 32 }, (_, i) => (i === 0 ? patch("ONE") : i === 31 ? patch("LAST") : new Uint8Array(DX_BYTES))));
+const bank = parseBank(file);
+let notBank = 0;
+try { parseBank(file.slice(0, 4000)); } catch { notBank++; }
+try { parseBank(Uint8Array.from(file, (v, i) => (i === 3 ? 0 : v))); } catch { notBank++; }
+ok(file.length === 4104 && (file.slice(6, 4103).reduce((a, v) => a + v, 0) & 127) === 0 && bank.length === 32 && dxName(bank[31]) === "LAST" &&
+   !dxEmpty(bank[0]) && dxEmpty(bank[1]) && notBank === 2, "a bank's file written and read; another file is not one");
+ok(dxEmpty(await link.dx(0)), "the FM-1's bank: empty as it comes");
+let noDx = false;
+try { await link.useDx(false, 0); } catch { noDx = true; }
+for (let i = 0; i < 32; i++) await link.putDx(i, bank[i]);
+const last = await link.dx(31);
+ok(noDx && dxName(last) === "LAST" && last.every((v, i) => v === bank[31][i]) && dxEmpty(await link.dx(5)), "the bank sent and read back");
+ok(await link.useDx(false, 31) === 31 && await link.useDx(true, 0) === 0, "its sounds used for the strings and the chord");
+let noEmpty = false;
+try { await link.useDx(true, 5); } catch { noEmpty = true; }
+await link.putDx(31, new Uint8Array(DX_BYTES));
+ok(noEmpty && dxEmpty(await link.dx(31)), "an empty one is not used; a sound taken away");
+await link.putDx(0, new Uint8Array(DX_BYTES));
 
 // a port that sends back what it is sent (ALSA's "Midi Through") is not an FM-1
 const echo = new Link((bytes) => queueMicrotask(() => echo.receive(bytes)), { timeout: 50 });

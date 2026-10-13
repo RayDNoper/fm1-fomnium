@@ -7,9 +7,9 @@
  *
  * A request the device does not understand, or with a value out of range, gets no reply. */
 enum { ED_INFO = 1, ED_STATE, ED_SETS, ED_PAD, ED_SET, ED_PUT, ED_SETS2, ED_RHY, ED_RHYPUT, ED_RHYSEL, ED_RSTATE,
-       ED_PLAY };
-#define ED_PROTO 3u                              /* 2: how a chord lies (INV_*), in its type byte's bits 4, 5; */
-                                                 /* 3: the rhythms */
+       ED_PLAY, ED_DX, ED_DXPUT, ED_DXUSE };
+#define ED_PROTO 4u                              /* 2: how a chord lies (INV_*), in its type byte's bits 4, 5; */
+                                                 /* 3: the rhythms; 4: the DX7 bank */
 #define ED_RHY_N (2u + OM_RHY_NAME + 96u)        /* a rhythm on the wire: steps, beat, name, 32 x (drums, bass, chord) */
 #define ED_NPAIR (2u * NSETS * NPADS)
 
@@ -87,6 +87,48 @@ void ed_service(void)
         ed_b(0);
         ed_b((uint32_t)om_nrhythm());            /* (protocol 3: the rhythms it comes with, and the player's) */
         ed_b(OM_NURHY);
+        ed_b(OM_NDX);                            /* (protocol 4: the DX7 bank's patches) */
+        break;
+    case ED_DX:                                  /* a patch of the bank, as a bank's SysEx holds it */
+        if (n != 1u || a[0] >= OM_NDX)
+            return;
+        ed_begin(cmd);
+        ed_b(a[0]);
+        for (i = 0; i < OM_DX_BYTES; i++)
+            ed_b(dx_bank[a[0]][i]);
+        break;
+    case ED_DXPUT:                               /* patch, then its bytes (all 0: none there) */
+        if (n != 1u + OM_DX_BYTES || a[0] >= OM_NDX)
+            return;
+        memcpy(dx_bank[a[0]], a + 1, OM_DX_BYTES);
+        if (!om_voice_ok(proj.voice)) {          /* the voice in use went: the harp, the organ */
+            proj.voice = 0;
+            om_voice(0);
+        }
+        if (!om_cvoice_ok(proj.cvoice)) {
+            proj.cvoice = 0;
+            om_cvoice(0);
+        }
+        bank_touch();
+        mark_dirty();
+        ed_begin(cmd);
+        ed_b(a[0]);
+        ed_b(0);
+        break;
+    case ED_DXUSE:                               /* a patch as the voice of the strings (0) or the chord (1) */
+        if (n != 2u || a[0] > 1u || a[1] >= OM_NDX || !om_voice_ok(OM_NSV + (int)a[1]))
+            return;
+        if (a[0]) {
+            proj.cvoice = (uint8_t)(OM_NCV + a[1]);
+            om_cvoice(proj.cvoice);
+        } else {
+            proj.voice = (uint8_t)(OM_NSV + a[1]);
+            om_voice(proj.voice);
+        }
+        mark_dirty();
+        ed_begin(cmd);
+        ed_b(a[0]);
+        ed_b(a[1]);
         break;
     case ED_RHY: {                               /* a rhythm, by its number: as it plays */
         const om_rhythm_t *r;

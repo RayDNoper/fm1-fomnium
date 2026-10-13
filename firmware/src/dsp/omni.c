@@ -277,87 +277,72 @@ typedef struct {
     float pos, inc, v, g, y1, y2, k, c, m, modamt;
     uint16_t shim_off;
     uint8_t on, note;
-    uint32_t ph[4], pinc[4];                   /* an FM voice: the four operators (1, 2, 3, 4) */
-    float fb1, fb2, me, kd;                    /* op 4's feedback history, the modulator envelope, the decay */
+    float kd;                                  /* as a DX7's voice: its decay */
 } str_t;
 static str_t str[OM_NSTR];
 
-/* ---- the strings' FM voices (a spike). Four sine operators as two stacks, 2 -> 1 and 4 -> 3, op 4 with
- * feedback, one modulation index under an envelope that falls to a quarter: SLOOP's DIGITAL engine
- * (github.com/isod89/sloop-fm1, eng_digital.c, from Felucca; GPL-3.0-only, Copyright (C) 2026 Leo Kuroshita
- * (@kurogedelic), Hügelton Instruments), its algorithm 5 and its sounds, here in float. A string has no
- * key to let go, so it takes only the sounds that die away by themselves (STR_V), and Sustain
- * stretches them. After SLOOP's sounds, some of a DX9's (a DX7 bank's two-pair patches, by tools/dx_voices.py):
- * for those the pairs have each their index and level, and op 1 its ratio. The chord takes them all: it has its own envelope (held, let go), and under it the
- * sound's attack and its decay to its sustain level. */
-typedef struct {
-    const char *name;
-    uint8_t r2, r3, r4, index, moddec, fb, dec;    /* ratios (FM_RATIO), 0..127, time 0..127 (1 ms..10 s) */
-    uint8_t att, sus;                              /* the chord: attack time, sustain level 0..127 */
-    uint8_t r1, index2, lv2;                       /* op 1's ratio; the 4 -> 3 pair's own index and level */
-} fmv_t;
-static const float FM_RATIO[15] = {0.5f, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16};
-static const fmv_t FMV[OM_NCVOICES - 1] = {
-    {"FM harp", 1, 1, 2, 45, 30, 10, 92, 0, 0, 1, 45, 127}, {"Music box", 4, 3, 9, 45, 75, 0, 90, 0, 0, 1, 45, 127}, {"Marimba", 4, 1, 1, 60, 30, 0, 80, 0, 0, 1, 60, 127},
-    {"Kalimba", 4, 1, 6, 52, 24, 0, 78, 0, 0, 1, 52, 127}, {"Soft bell", 3, 1, 4, 56, 60, 0, 90, 0, 0, 1, 56, 127}, {"Steel drum", 2, 2, 2, 45, 45, 0, 88, 0, 0, 1, 45, 127},
-    {"Glocken", 5, 1, 8, 40, 60, 0, 95, 0, 0, 1, 40, 127}, {"Celesta", 2, 1, 4, 30, 50, 0, 84, 0, 0, 1, 30, 127}, {"Xylophone", 4, 3, 3, 70, 18, 0, 77, 0, 0, 1, 70, 127},
-    {"Tube bell", 6, 1, 13, 50, 90, 0, 100, 0, 0, 1, 50, 127}, {"FM pluck", 2, 1, 3, 70, 15, 0, 78, 0, 0, 1, 70, 127},
-    {"Rhodes", 1, 1, 14, 26, 35, 0, 85, 0, 35, 1, 26, 127}, {"DX Rhodes", 1, 1, 14, 85, 45, 0, 82, 0, 40, 1, 85, 127},
-    {"Wurli", 1, 2, 3, 62, 35, 8, 75, 0, 30, 1, 62, 127}, {"M1 piano", 1, 2, 13, 74, 30, 12, 86, 0, 30, 1, 74, 127},
-    {"Afro keys", 1, 1, 7, 40, 50, 0, 82, 0, 40, 1, 40, 127}, {"Glass pad", 2, 1, 5, 34, 100, 0, 92, 62, 112, 1, 34, 127},
-    {"FM grand", 1, 2, 12, 60, 40, 10, 90, 0, 20, 1, 60, 127},
-    /* a DX9's, by tools/dx_voices.py: 8, 9 and 15 die away, the others hold */
-    {"DX9 3", 4, 5, 5, 8, 127, 2, 127, 84, 127, 4, 15, 127},
-    {"DX9 4", 2, 3, 3, 17, 117, 5, 119, 90, 127, 2, 2, 127},
-    {"DX9 5", 2, 3, 3, 17, 127, 2, 119, 90, 127, 2, 5, 127},
-    {"DX9 6", 2, 3, 3, 9, 127, 2, 119, 64, 127, 2, 9, 127},
-    {"DX9 8", 3, 1, 4, 11, 127, 0, 118, 0, 0, 1, 9, 127},
-    {"DX9 9", 3, 2, 1, 107, 127, 1, 118, 0, 0, 2, 38, 127},
-    {"DX9 10", 1, 1, 1, 127, 127, 0, 127, 0, 127, 1, 127, 127},
-    {"DX9 15", 2, 4, 0, 11, 88, 4, 116, 0, 0, 0, 32, 41},
-    {"DX9 17", 4, 0, 0, 16, 127, 2, 127, 0, 0, 1, 53, 98},
-    {"DX9 18", 2, 2, 2, 11, 127, 0, 127, 31, 127, 2, 11, 127},
-    {"DX9 19", 1, 2, 2, 19, 127, 6, 118, 0, 127, 1, 11, 127},
-};
-/* the strings' FM sounds: those of FMV that die away by themselves */
-static const uint8_t STR_V[OM_NVOICES - 1] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 22, 23, 25};
-static uint8_t voice;                          /* 0 the harp, 1.. FMV[STR_V[voice - 1]] (om_voice) */
+/* ---- the voices. The strings: the OM's harp, or a patch of the DX7 bank (om_dx.h). The chord: the OM's
+ * organ, or a patch. The bass and the drums are the OM's own */
+static uint8_t voice;                          /* 0 the harp, 1.. the bank's patch voice - 1 (om_voice) */
 static float fm_sin[1025];                     /* a cycle, and its first point again */
-static uint8_t cvoice;                         /* the chord: 0 the organ, 1.. FMV[cvoice - 1] (om_cvoice) */
-const char *om_voice_name(int i) { return i > 0 && i < OM_NVOICES ? FMV[STR_V[i - 1]].name : "OM harp"; }
-const char *om_cvoice_name(int i) { return i > 0 && i < OM_NCVOICES ? FMV[i - 1].name : "Organ"; }
+static uint8_t cvoice;                         /* the chord: 0 the organ, 1.. a patch (om_cvoice) */
+const uint8_t (*volatile om_dx_tab)[OM_DX_BYTES];
+static const char *dx_name(int i);
+static int dx_has(int i);
+const char *om_voice_name(int i) { return i >= OM_NSV ? dx_name(i - OM_NSV) : "OM harp"; }
+const char *om_cvoice_name(int i) { return i >= OM_NCV ? dx_name(i - OM_NCV) : "Organ"; }
+int om_voice_ok(int i) { return i >= 0 && (i < OM_NSV || dx_has(i - OM_NSV)); }
+int om_cvoice_ok(int i) { return i >= 0 && (i < OM_NCV || dx_has(i - OM_NCV)); }
 
-static float fm_time(int v) { return 0.001f * fm_exp2f((float)v * (13.287712f / 127.0f)); }   /* seconds */
 static inline float fm_osc(uint32_t ph)
 {
     uint32_t i = ph >> 22;
     float a = fm_sin[i];
     return a + (fm_sin[i + 1] - a) * ((float)(ph & 0x3FFFFFu) * (1.0f / 4194304.0f));
 }
-/* x (-1..1) times k, a quarter of the phase's range: the modulation, wrapping as the phase does */
-static inline uint32_t fm_pm(float x, float k) { return (uint32_t)(int32_t)(x * k) << 2; }
-
-/* the four operators' steps for note n */
-static void fm_pitch(const fmv_t *f, int n, uint32_t pinc[4])
+#include "om_dx.h"
+static dxv_t dxs[OM_NSTR], dxc[OM_NCHORD];     /* the strings and the chord's notes as a DX7's voices */
+static uint32_t str_age[OM_NSTR], str_clock;   /* when each string was plucked */
+static int dx_has(int i)
 {
-    float hz = 440.0f * tunefac * fm_exp2f((float)(n - 69) * (1.0f / 12.0f));
-    const float r[4] = {FM_RATIO[f->r1], FM_RATIO[f->r2], FM_RATIO[f->r3], FM_RATIO[f->r4]};
-    int i;
-    for (i = 0; i < 4; i++)
-        pinc[i] = (uint32_t)(fm_minf(hz * r[i] * (1.0f / OM_SR), 0.449f) * 4294967296.0f);   /* below Nyquist */
+    const uint8_t (*t)[OM_DX_BYTES] = om_dx_tab;
+    return t && i >= 0 && i < OM_NDX && dx_ok(t[i]);
 }
-
-static void fm_strum(str_t *v, int n)
+static const char *dx_name(int i)              /* as the patch is named (until the next call) */
 {
-    const fmv_t *f = &FMV[STR_V[voice - 1]];
-    fm_pitch(f, n, v->pinc);
-    if (!v->on) {
-        v->ph[0] = v->ph[1] = v->ph[2] = v->ph[3] = 0;
-        v->fb1 = v->fb2 = 0.0f;
+    static char b[11];
+    const uint8_t (*t)[OM_DX_BYTES] = om_dx_tab;
+    int k, n = 0;
+    if (!dx_has(i))
+        return "-";
+    for (k = 0; k < 10; k++) {
+        char c = (char)t[i][118 + k];
+        b[k] = c < 32 || c > 126 || c == 92 ? ' ' : c;
+        if (b[k] != ' ')
+            n = k + 1;
     }
-    v->me = 1.0f;
-    /* 99 % gone after the sound's decay time, times 0.5 (Sustain 0) .. 3.5 (100) */
-    v->kd = fm_exp2f(-1.442695f * 4.6f / (fm_time(f->dec) * (0.5f + 0.03f * (float)par[P_SUSTAIN]) * OM_SR));
+    b[n] = 0;
+    return n ? b : "DX";
+}
+#define DXS (voice >= OM_NSV)                  /* the strings, the chord play a DX7's patch */
+#define DXC (cvoice >= OM_NCV)
+
+/* a string as a DX7's voice: the patch with its key held, under the string's own decay (Sustain: 99 % gone
+ * after 0.6 s .. 12 s). No more than OM_DX_POLY at once: the one plucked longest ago dies away for it */
+static void dx_strum(str_t *v, int s, int n)
+{
+    int i, live = 0, old = -1;
+    for (i = 0; i < OM_NSTR; i++)
+        if (i != s && str[i].on && str[i].v > 0.0f) {
+            live++;
+            if (old < 0 || str_clock - str_age[i] > str_clock - str_age[old])
+                old = i;
+        }
+    if (live >= OM_DX_POLY)
+        str[old].v = 0.0f;
+    str_age[s] = ++str_clock;
+    dx_on(&dxs[s], om_dx_tab[voice - OM_NSV], n, !v->on);
+    v->kd = fm_exp2f(-1.442695f * 4.6f / (0.6f * fm_exp2f(0.0432f * (float)par[P_SUSTAIN]) * OM_SR));
 }
 
 static void midi(uint32_t st, uint32_t d1, uint32_t d2)
@@ -380,8 +365,8 @@ static void strum(int s)
         v->y1 = v->y2 = 0.0f;
         v->g = 0.0f;
     }
-    if (voice)
-        fm_strum(v, n);
+    if (DXS)
+        dx_strum(v, s, n);
     v->on = 1;
     v->note = (uint8_t)n;
     v->inc = note_inc(n);
@@ -403,12 +388,6 @@ typedef struct {
     uint8_t st, note;
 } cv_t;
 static cv_t chv[OM_NCHORD], bsv;
-typedef struct {                               /* a chord note as an FM voice (cvoice) */
-    uint32_t ph[4], pinc[4];
-    float fb1, fb2, me, amp;
-    uint8_t rise;                              /* in its attack */
-} fmc_t;
-static fmc_t chf[OM_NCHORD];
 static uint8_t bass_kind;                      /* 0 root, 1 fifth, 2 third */
 
 static int bass_note(void)
@@ -426,16 +405,8 @@ static void chord_cmd(char c)
         for (i = 0; i < OM_NCHORD; i++) {
             if (chv[i].st != E_OFF)
                 midi(0x81, chv[i].note, 0);
-            if (cvoice) {
-                fmc_t *f = &chf[i];
-                fm_pitch(&FMV[cvoice - 1], chord_n[i], f->pinc);
-                if (chv[i].st == E_OFF) {
-                    f->ph[0] = f->ph[1] = f->ph[2] = f->ph[3] = 0;
-                    f->fb1 = f->fb2 = 0.0f;
-                }
-                f->me = 1.0f;
-                f->rise = FMV[cvoice - 1].att != 0;
-                f->amp = f->rise ? 0.0f : 1.0f;
+            if (DXC) {
+                dx_on(&dxc[i], om_dx_tab[cvoice - OM_NCV], chord_n[i], chv[i].st == E_OFF);
             }
             chv[i].note = chord_n[i];
             chv[i].inc = note_inc(chord_n[i]);
@@ -484,8 +455,8 @@ static void retune(void)
             midi(0x81, chv[i].note, 0);
             chv[i].note = chord_n[i];
             chv[i].inc = note_inc(chord_n[i]);
-            if (cvoice)
-                fm_pitch(&FMV[cvoice - 1], chord_n[i], chf[i].pinc);
+            if (DXC)
+                dx_pitch(&dxc[i], om_dx_tab[cvoice - OM_NCV], chord_n[i]);
             midi(0x91, chord_n[i], 90);
         }
     if (bsv.st != E_OFF && bsv.note != bass_note()) {
@@ -833,7 +804,7 @@ static void drain(void)
                     str[b].on = 0;
                     midi(0x80, str[b].note, 0);
                 }
-            voice = (uint8_t)(a < OM_NVOICES ? a : 0);
+            voice = (uint8_t)(a < OM_NVOICES && om_voice_ok(a) ? a : 0);
             break;
         case C_CVOICE:                            /* the chord that sounds stops: it is the other voice's */
             for (b = 0; b < OM_NCHORD; b++)
@@ -841,7 +812,7 @@ static void drain(void)
                     chv[b].st = E_OFF;
                     midi(0x81, chv[b].note, 0);
                 }
-            cvoice = (uint8_t)(a < OM_NCVOICES ? a : 0);
+            cvoice = (uint8_t)(a < OM_NCVOICES && om_cvoice_ok(a) ? a : 0);
             if (gate && !(om_playing && par[P_ABC]))
                 chord_cmd('T');             /* a chord held by hand goes on in the new voice */
             break;
@@ -919,36 +890,22 @@ static void drain(void)
 #define BLK 256
 static float mixl[BLK], mixr[BLK], send[BLK];
 
-static void render_fm(str_t *v, int s, uint32_t n)
+/* a DX7's voice for the string or chord note being rendered, before its envelope */
+static float dxbuf[BLK];
+
+static void render_dx(str_t *v, int s, uint32_t n)
 {
-    const fmv_t *f = &FMV[STR_V[voice - 1]];
-    const float lvl = 0.4f * v1, gl = pan_l[s], gr = pan_r[s], kd = v->kd, fbk = (float)f->fb * (2.0f / 127.0f) * 1.07e9f,
-                km = 1.0f - fm_exp2f(-1.442695f * 16.0f * 4.6f / (fm_time(f->moddec) * OM_SR));
-    uint32_t p1 = v->ph[0], p2 = v->ph[1], p3 = v->ph[2], p4 = v->ph[3], j;
-    const float l2 = (float)f->lv2 * (1.0f / 127.0f);
-    float fb1 = v->fb1, fb2 = v->fb2, e = v->v, g = v->g, ik = 0.0f, ik2 = 0.0f;
+    const float lvl = 0.4f * v1, gl = pan_l[s], gr = pan_r[s], kd = v->kd;
+    float e = v->v, g = v->g;
+    uint32_t j;
+    dx_render(&dxs[s], dxbuf, n);
     for (j = 0; j < n; j++) {
-        float o1, o2, o3, o4, o;
-        if (!(j & 15u)) {                           /* every 16 samples: the modulator envelope */
-            v->me += (0.25f - v->me) * km;
-            ik = (float)f->index * (2.0f / 127.0f) * v->me * 1.07e9f;
-            ik2 = (float)f->index2 * (2.0f / 127.0f) * v->me * 1.07e9f;
-        }
-        o4 = fm_osc(p4 + fm_pm((fb1 + fb2) * 0.5f, fbk));
-        fb2 = fb1;
-        fb1 = o4;
-        o3 = fm_osc(p3 + fm_pm(o4, ik2));
-        o2 = fm_osc(p2);
-        o1 = fm_osc(p1 + fm_pm(o2, ik));
+        float o;
         g += 0.05f * (e - g);
-        o = (o1 + o3 * l2) * g * lvl;
+        o = dxbuf[j] * g * lvl;
         mixl[j] += o * gl;
         mixr[j] += o * gr;
         send[j] += o * rsend;
-        p1 += v->pinc[0];
-        p2 += v->pinc[1];
-        p3 += v->pinc[2];
-        p4 += v->pinc[3];
         e *= kd;
         if (e < 1e-4f) {
             e = 0.0f;
@@ -959,12 +916,6 @@ static void render_fm(str_t *v, int s, uint32_t n)
             }
         }
     }
-    v->ph[0] = p1;
-    v->ph[1] = p2;
-    v->ph[2] = p3;
-    v->ph[3] = p4;
-    v->fb1 = fb1;
-    v->fb2 = fb2;
     v->v = e;
     v->g = g;
     om_str_level[s] = v->on ? e : 0.0f;
@@ -984,8 +935,8 @@ static void render_strings(uint32_t n)
             om_str_level[s] = 0.0f;
             continue;
         }
-        if (voice) {
-            render_fm(v, s, n);
+        if (DXS) {
+            render_dx(v, s, n);
             continue;
         }
         for (j = 0; j < n; j++) {
@@ -1066,48 +1017,18 @@ static float env_step(cv_t *v, int bass)
     return v->v;
 }
 
-/* a chord note as an FM voice: the chord's own envelope (env_step), and under it the sound's */
-static void render_fm_chord(cv_t *v, fmc_t *c, uint32_t n, float gc)
+/* a chord note as a DX7's voice: the chord's own envelope over the patch with its key held */
+static void render_dx_chord(cv_t *v, dxv_t *c, uint32_t n, float gc)
 {
-    const fmv_t *f = &FMV[cvoice - 1];
-    const float fbk = (float)f->fb * (2.0f / 127.0f) * 1.07e9f, sus = (float)f->sus * (1.0f / 127.0f),
-                km = 1.0f - fm_exp2f(-1.442695f * 16.0f * 4.6f / (fm_time(f->moddec) * OM_SR)),
-                kd = 1.0f - fm_exp2f(-1.442695f * 16.0f * 4.6f / (fm_time(f->dec) * OM_SR)),
-                ka = 16.0f / (fm_time(f->att) * OM_SR);
-    const float l2 = (float)f->lv2 * (1.0f / 127.0f);
-    float ik = 0.0f, ik2 = 0.0f;
     uint32_t j;
+    dx_render(c, dxbuf, n);
     for (j = 0; j < n && v->st != E_OFF; j++) {
-        float e = env_step(v, 0), o1, o2, o3, o4, o;
-        if (!(j & 15u)) {                           /* every 16 samples: the sound's envelopes */
-            c->me += (0.25f - c->me) * km;
-            ik = (float)f->index * (2.0f / 127.0f) * c->me * 1.07e9f;
-            ik2 = (float)f->index2 * (2.0f / 127.0f) * c->me * 1.07e9f;
-            if (c->rise) {
-                c->amp += ka;
-                if (c->amp >= 1.0f) {
-                    c->amp = 1.0f;
-                    c->rise = 0;
-                }
-            } else {
-                c->amp += (sus - c->amp) * kd;
-            }
-        }
-        o4 = fm_osc(c->ph[3] + fm_pm((c->fb1 + c->fb2) * 0.5f, fbk));
-        c->fb2 = c->fb1;
-        c->fb1 = o4;
-        o3 = fm_osc(c->ph[2] + fm_pm(o4, ik2));
-        o2 = fm_osc(c->ph[1]);
-        o1 = fm_osc(c->ph[0] + fm_pm(o2, ik));
-        v->g += 0.05f * (e * c->amp - v->g);
-        o = (o1 + o3 * l2) * v->g * gc * 0.4f;        /* about the organ's level */
+        float o;
+        v->g += 0.05f * (env_step(v, 0) - v->g);
+        o = dxbuf[j] * v->g * gc * 0.4f;
         mixl[j] += o;
         mixr[j] += o;
         send[j] += o * csend;
-        c->ph[0] += c->pinc[0];
-        c->ph[1] += c->pinc[1];
-        c->ph[2] += c->pinc[2];
-        c->ph[3] += c->pinc[3];
     }
 }
 
@@ -1121,8 +1042,8 @@ static void render_chord(uint32_t n)
         cv_t *v = &chv[i];
         if (v->st == E_OFF)
             continue;
-        if (cvoice) {
-            render_fm_chord(v, &chf[i], n, gc);
+        if (DXC) {
+            render_dx_chord(v, &dxc[i], n, gc);
             lvl = fm_maxf(lvl, v->v);
             continue;
         }
@@ -1198,7 +1119,9 @@ static void render_chunk(int32_t *out, uint32_t n, float gain)
 void om_render(int32_t *out, uint32_t n, uint32_t gain_q12)
 {
     const float gain = (float)gain_q12 * (1.0f / 4096.0f) * 2.0f;
+    static uint32_t smp;
     drain();
+    dx_clock = (smp += n) / DX_TICK;
     if (om_ext && ++ext_age > 100u)                /* ~0.6 s without a tick: back to its own tempo */
         om_ext = 0;
     while (n) {
