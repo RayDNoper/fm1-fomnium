@@ -404,6 +404,12 @@ static int expect(const char *what, const char *val)
         got = proj.rhy[atoi(what + 6) % OM_NURHY][0];
     else if (!strcmp(what, "bass"))               /* the bass's level, 0..100 (50 as it comes) */
         got = proj.bass + 50;
+    else if (!strcmp(what, "mel"))                /* the melody: its level (0 off), seed; mellevel: its note x 100 */
+        got = proj.mel;
+    else if (!strcmp(what, "melseed"))
+        got = proj.mel_seed;
+    else if (!strcmp(what, "mellevel"))
+        got = (int)(om_mel_level * 100.0f);
     else if (!strcmp(what, "seqtrk"))             /* the track in use, and (seqplay) the one playing */
         got = proj.seq_trk;
     else if (!strcmp(what, "seqplay"))

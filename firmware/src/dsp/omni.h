@@ -108,6 +108,13 @@ void om_plate(int mode, int shift);
 extern const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
 void om_seq(int on, int key);
 void om_seq_track(int t);
+/* the melody: while the rhythm runs and a chord sounds, a tune of its own over the chords, on the strings'
+ * voice (one note at a time, MIDI channel 4). Made by rules (chord tones on the strong beats, mostly steps, a
+ * leap filled in, a two-bar figure heard again and a phrase ending on the root or third), from a seed: the
+ * same seed over the same chords plays the same tune. What: OM_MEL_LEVEL 0 off .. 100, OM_MEL_DENSITY 0
+ * sparse .. 100 busy, OM_MEL_SEED 1..99, OM_MEL_REPEAT 0 wanders .. 100 keeps to its figure */
+enum { OM_MEL_LEVEL, OM_MEL_DENSITY, OM_MEL_SEED, OM_MEL_REPEAT };
+void om_melody(int what, int value);
 void om_bass(int level);                       /* the bass against the chord: 0 none .. 50 as it comes .. 100 twice that */
 void om_gate(int on);                          /* a chord pad held (1) / released (0): the chord section */
 void om_strum(int string);                     /* pluck string 0..15 */
@@ -129,6 +136,8 @@ void om_midi_out(uint32_t st, uint32_t d1, uint32_t d2);
 extern volatile float om_str_level[OM_NSTR];   /* each string's envelope, 0..1 */
 extern volatile uint8_t om_str_note[OM_NSTR];  /* the note each string plucks, for the chord now (MIDI) */
 extern volatile float om_chord_level, om_bass_level;
+extern volatile float om_mel_level;            /* the melody's note, as om_str_level */
+extern volatile uint8_t om_mel_note;           /* and its note (MIDI) */
 extern volatile uint8_t om_playing, om_step, om_steps;
 extern volatile uint8_t om_drum_hit;           /* bits: drums hit since the UI last cleared it */
 extern volatile uint8_t om_seq_trk, om_seq_at, om_seq_n;   /* the sequence: the track and step playing, and a

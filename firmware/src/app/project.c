@@ -38,6 +38,14 @@ static void sets_defaults(void)
         }
 }
 
+static void mel_defaults(void)
+{
+    proj.mel = 0;
+    proj.mel_den = 50;
+    proj.mel_seed = 1;
+    proj.mel_rep = 70;
+}
+
 void project_defaults(void)
 {
     int i;
@@ -48,6 +56,7 @@ void project_defaults(void)
         proj.par[i] = om_param_info(i)->def;
     sets_defaults();
     proj.leds = 1;
+    mel_defaults();
 }
 
 static int project_valid(void)
@@ -73,7 +82,6 @@ static int project_valid(void)
         proj.cvoice = 0;
         proj.shift = 0;
         proj.seq_on = 0;
-        memset(proj.rsv, 0, sizeof proj.rsv);
         proj.seq_trk = 0;
         proj.bass = 0;
         memset(proj.seq, 0, sizeof proj.seq);
@@ -84,6 +92,8 @@ static int project_valid(void)
         proj.voice = proj.voice >= 20u ? (uint8_t)(proj.voice - 19u) : 0u;
         proj.cvoice = proj.cvoice >= 35u ? (uint8_t)(proj.cvoice - 34u) : 0u;
     }
+    if (!proj.mel_seed || proj.mel > 100u || proj.mel_den > 100u || proj.mel_seed > 99u || proj.mel_rep > 100u)
+        mel_defaults();                          /* from before the melody (its bytes were zeros) */
     proj.format = PROJ_FORMAT;
     for (i = 0; i < P_NPARAMS; i++) {
         const om_param_t *p = om_param_info(i);
@@ -153,6 +163,10 @@ void project_apply(void)
     om_voice(proj.voice);
     om_cvoice(proj.cvoice);
     om_bass(proj.bass + 50);
+    om_melody(OM_MEL_LEVEL, proj.mel);
+    om_melody(OM_MEL_DENSITY, proj.mel_den);
+    om_melody(OM_MEL_SEED, proj.mel_seed);
+    om_melody(OM_MEL_REPEAT, proj.mel_rep);
     for (i = 0; i < OM_NURHY; i++)
         om_rhythm_user(i, proj.rhy[i]);
     om_seq_tab = proj.seq;

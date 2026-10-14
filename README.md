@@ -41,7 +41,7 @@ firmware back, and an FM-1 that keeps crashing starts in a safe mode.
 
 Each page puts four values on KNOB 1–4. EDIT steps through the pages.
 
-- **HOME: Play.** Voice 1, Voice 2, Sustain, Chord level.
+- **HOME: Play.** Voice 1, Voice 2, Sustain, Chord level. Press HOME again for **Melody**: a tune made up as it plays, over the chords, while the rhythm runs and a chord sounds (held, CHORD HOLD, or the sequence), on the strings' voice, one note at a time. Melody (Off, or its level), Density (from a few long notes to busy runs), Seed (1 to 99, each its own tune: the same seed over the same chords plays the same melody again, from PLAY), Repeat (how much it keeps to its opening figure rather than wandering). It is random within rules songwriters keep: the chord's tones on the strong beats and the scale's notes between them, mostly steps, a leap followed by a turn back, a figure heard again over the next chords, and four-bar phrases that end on the root or the third. You can strum along over it; with a DX7 sound, its note counts among the nine.
 - **SEQ: Rhythm.** Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).
 - **FX: Sound.** Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.
 - **SEL: Chords.** Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 is Transpose (−6 to +6). KNOB 4, Invert, is how that button's chord lies: OM, as the Omnichord has it (its notes folded into one fixed octave, the root in the bass); Root, root position; 1st and 2nd, the inversions, with their bottom note in the bass too (C/E, C/G). Dots under a chord's name show it. (OCT− and OCT+ still move the strum plate's octave.)
@@ -58,8 +58,8 @@ MIDI comes in over USB and the TRS jack (the FM-1's jack is an input), and goes 
 - **In, channel 1:** notes pluck the nearest string.
 - **In, channel 2:** play a chord on a keyboard and it becomes the chord, as if you'd pressed a black key.
 - **In, clock:** the rhythm follows MIDI clock and start / stop; the screen shows EXT for the tempo.
-- **Out** (on by default, Setup page): the strings on channel 1, the chord on 2, the bass on 3, the drums
-  on 10, and clock with start / stop when the rhythm runs on its own tempo.
+- **Out** (on by default, Setup page): the strings on channel 1, the chord on 2, the bass on 3, the melody on 4,
+  the drums on 10, and clock with start / stop when the rhythm runs on its own tempo.
 
 ### Firmware switcher
 
@@ -87,7 +87,7 @@ same code for the browser.
 
 Jambox FM-1 is inspired by and forked from [FoMni-1](https://github.com/charlesvestal/fm1-fomni),
 and most of it is FoMni-1's. This fork adds a
-reggae rhythm, chord sets, scales on the strum plate, a dark screen, a chord sequence, DX7 voices from a bank, an editor for chord sets, rhythms and those and
+reggae rhythm, chord sets, scales on the strum plate, a dark screen, a chord sequence, a melody generator, DX7 voices from a bank, an editor for chord sets, rhythms and those and
 a firmware switcher. The DX7 voices follow msfa, the engine of
 [Dexed](https://github.com/asb2m10/dexed).
 

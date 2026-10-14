@@ -8,17 +8,17 @@
  *   REC            the chord sequence: on, and its page (there, with the rhythm stopped, a chord button
  *                  writes a step); again on its page: off. Held, the first eight chord buttons pick its track
  *   ARP            CHORD HOLD          OCT- / OCT+   the plate's octave
- *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (GLO again: its second and third
- *                         page; EDIT steps through them all)
+ *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (HOME again: MELODY; GLO again: its
+ *                         second and third page; EDIT steps through them all)
  *   SELECT tempo   ALGORITHM rhythm   PRESETS chord set   KNOB 1-4 the page's four values
  *   SAVE           saves (it also saves by itself, a few seconds after a change, when quiet) */
 
-enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, V_SETUP3, V_SEQ, NVIEWS };
+enum { V_PLAY, V_RHYTHM, V_SOUND, V_PADS, V_SETUP, V_SETUP2, V_SETUP3, V_SEQ, V_MELODY, NVIEWS };
 static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords", "Setup", "Setup 2", "Setup 3",
-                                              "Sequence"};
+                                              "Sequence", "Melody"};
 /* the four knobs of each page: a parameter, or one of these */
 enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_SYNC,
-       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_LOAD, K_NONE };
+       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_LOAD, K_MEL, K_MDEN, K_MSEED, K_MREP, K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
@@ -28,6 +28,7 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
     {K_SYNC, K_BASS, K_NONE, K_LOAD},
     {K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS},
+    {K_MEL, K_MDEN, K_MSEED, K_MREP},
 };
 
 /* Strings, in the knob's order (the saved numbers are PL_*) */
@@ -162,6 +163,14 @@ static int knob_get(int k)
         return proj.bass + 50;
     if (k == K_LOAD)                             /* what the sound takes of the time there is for it (shown only) */
         return plat_cpu_pct() > 100u ? 100 : (int)plat_cpu_pct();
+    if (k == K_MEL)
+        return proj.mel;
+    if (k == K_MDEN)
+        return proj.mel_den;
+    if (k == K_MSEED)
+        return proj.mel_seed;
+    if (k == K_MREP)
+        return proj.mel_rep;
     if (k == K_SQSTEP)
         return ui.seq_sel;
     if (k == K_SQROOT)                           /* as it sounds in this chord set's key */
@@ -204,12 +213,15 @@ static void knob_range(int k, int *lo, int *hi)
     } else if (k == K_SHIFT) {
         *lo = proj.plate == PL_CHORD ? -6 : 0;
         *hi = proj.plate == PL_CHORD ? 6 : 0;
+    } else if (k == K_MSEED) {
+        *lo = 1;
+        *hi = 99;
     } else if (k == K_SQSTEP) {                  /* the steps there are, and the one after them */
         *lo = 0;
         *hi = seq_len() < NSEQ ? seq_len() : NSEQ - 1;
     } else {
         *lo = 0;
-        *hi = k == K_BASS || k == K_LOAD ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
+        *hi = k == K_BASS || k == K_LOAD || k == K_MEL || k == K_MDEN || k == K_MREP ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
               k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
               k == K_CVOICE ? OM_NCVOICES - 1 : 0;
     }
@@ -222,7 +234,8 @@ static const char *knob_name(int k)
            k == K_PLATE ? "Strings" : k == K_DARK ? "Dark" : k == K_VOICE ? "Harp" : k == K_CVOICE ? "Chord" :
            k == K_SHIFT ? "Shift" : k == K_SYNC ? "Sync start" : k == K_SQSTEP ? "Step" : k == K_SQROOT ? "Root" :
            k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : k == K_PADINV ? "Invert" : k == K_BASS ? "Bass" :
-           k == K_LOAD ? "Load" : "";
+           k == K_LOAD ? "Load" : k == K_MEL ? "Melody" : k == K_MDEN ? "Density" : k == K_MSEED ? "Seed" :
+           k == K_MREP ? "Repeat" : "";
 }
 static void knob_text(int k, char *b)
 {
@@ -233,7 +246,7 @@ static void knob_text(int k, char *b)
         const char *n = v == INV_ROOT ? "Root" : v == INV_1ST ? "1st" : v == INV_2ND ? "2nd" : "OM";
         while ((*b++ = *n++))
             ;
-    } else if (k == K_BASS) {
+    } else if (k == K_BASS || k == K_MDEN || k == K_MSEED || k == K_MREP || (k == K_MEL && v)) {
         itoa_u((uint32_t)v, b);
     } else if (k == K_SQSTEP) {
         itoa_u((uint32_t)v + 1u, b);
@@ -279,7 +292,7 @@ static void knob_text(int k, char *b)
             b++;
         b[0] = '%';
         b[1] = 0;
-    } else if (k == K_DARK || k == K_SYNC) {
+    } else if (k == K_DARK || k == K_SYNC || k == K_MEL) {
         const char *n = v ? "On" : "Off";
         while ((*b++ = *n++))
             ;
@@ -355,6 +368,10 @@ static void knob_set(int k, int v)
     } else if (k == K_BASS) {
         proj.bass = (int8_t)(v - 50);
         om_bass(v);
+    } else if (k == K_MEL || k == K_MDEN || k == K_MSEED || k == K_MREP) {   /* the melody (its page) */
+        uint8_t *m = k == K_MEL ? &proj.mel : k == K_MDEN ? &proj.mel_den : k == K_MSEED ? &proj.mel_seed : &proj.mel_rep;
+        *m = (uint8_t)v;
+        om_melody(k - K_MEL, v);
     } else if (k == K_SYNC) {                    /* SYNC START: PLAY waits for the first chord */
         proj.sync = (uint8_t)v;
         if (!v)
@@ -541,7 +558,7 @@ static void set_view(int v)
 static void button(int b)
 {
     switch (b) {
-    case B_HOME: set_view(V_PLAY); break;
+    case B_HOME: set_view(ui.view == V_PLAY ? V_MELODY : V_PLAY); break;
     case B_SEQ: set_view(V_RHYTHM); break;
     case B_FX: set_view(V_SOUND); break;
     case B_SEL: set_view(V_PADS); break;
@@ -983,6 +1000,8 @@ static void draw_main(void)
     for (s = 0; s < NPADS; s++)
         h = hash(h, proj.pad_root[proj.set][s] | proj.pad_type[proj.set][s] << 4 | proj.pad_inv[proj.set][s] << 8);
     h = hash(h, proj.set | proj.plate << 8);
+    if (ui.view == V_MELODY)
+        h = hash(h, om_mel_note | (uint32_t)(om_mel_level > 0.2f) << 8 | (uint32_t)proj.mel << 9);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM] | ui.rhy_n << 8);
     if (ui.view == V_SEQ) {
@@ -1042,6 +1061,18 @@ static void draw_main(void)
                 m[14] = 0;
             }
             cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, K_HARP);
+        } else if (ui.view == V_MELODY) {           /* the melody's note, while it sounds */
+            char m[16] = "MELODY";
+            if (proj.mel && om_mel_level > 0.2f) {
+                const char *n = OM_NOTE_NAME[om_mel_note % 12];
+                int j = 6;
+                m[j++] = ' ';
+                while (*n)
+                    m[j++] = *n++;
+                m[j++] = (char)('0' + (om_mel_note / 12 - 1) % 10);
+                m[j] = 0;
+            }
+            cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, proj.mel ? K_HARP : K_DIM);
         } else if (proj.plate) {
             const char *m = proj.plate == PL_CHORD ? "REL SCALE" : proj.plate == PL_LINEAR ? "LINEAR" : "SCALE";
             cv_text(x - 6 - text_w(&FONT_XS, m), 1, &FONT_XS, m, K_HARP);
@@ -1109,7 +1140,7 @@ static void draw_knobs(void)
 static void leds(void)
 {
     uint32_t b = 0, k = 0, i;
-    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO, B_GLO, B_GLO, B_REC};
+    static const uint8_t VIEW_BTN[NVIEWS] = {B_HOME, B_SEQ, B_FX, B_SEL, B_GLO, B_GLO, B_GLO, B_REC, B_HOME};
     b |= 1u << VIEW_BTN[ui.view];
     if (om_playing)
         b |= (om_step & 3u) < 2u ? 1u << B_PLAY : 0u;
@@ -1142,6 +1173,8 @@ static void autosave(void)
     for (i = 0; i < OM_NSTR; i++)
         if (om_str_level[i] > 0.0f)
             return;
+    if (om_mel_level > 0.0f)
+        return;
     if (project_save() == 0) {
         ui.dirty = 0;
         ui.saved_t = now;

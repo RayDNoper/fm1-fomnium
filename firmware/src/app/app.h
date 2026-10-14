@@ -34,7 +34,8 @@ typedef struct {
     uint8_t seq_on;                      /* the chord sequence plays with the rhythm (REC) */
     uint8_t seq_trk;                     /* its track in use */
     int8_t bass;                         /* the bass's level against the chord, -50 (none) .. 0 (as it comes) .. 50 */
-    uint8_t rsv[4];                      /* room to grow: an older, shorter project loads (zeros here) */
+    uint8_t mel;                         /* the melody: 0 off, its level 1..100 (om_melody) */
+    uint8_t mel_den, mel_seed, mel_rep;  /* its Density, Seed (1..99; 0: a project from before it) and Repeat */
     /* the chord sequence's tracks: each step a chord (root | type << 4) and its beats (| INV_* << 6), 0: the
      * track ends before it. The roots are counted from the chord set's key (seq_key), so another set (PRESETS) plays
      * the sequence in its key */

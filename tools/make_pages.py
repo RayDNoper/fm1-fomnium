@@ -117,6 +117,7 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
 <p>Each page puts four values on KNOB 1–4. EDIT steps through the pages.</p>
 <ul class="pages">
   <li><b>HOME: Play.</b> Voice 1, Voice 2, Sustain, Chord level.</li>
+  <li><b>HOME again: Melody.</b> A tune made up as it plays, over the chords, while the rhythm runs and a chord sounds (held, CHORD HOLD or the sequence), on the strings' voice. Melody (Off, or its level), Density (from a few long notes to busy runs), Seed (each of 1 to 99 its own tune: the same seed over the same chords plays the same melody again, from PLAY), Repeat (how much it keeps to its opening figure rather than wandering). It follows rules songwriters keep: the chord's tones on the strong beats, mostly steps of the scale, a leap turned back from, a two-bar figure heard again over the next chords, and four-bar phrases ending on the root or third. You can strum along over it.</li>
   <li><b>SEQ: Rhythm.</b> Rhythm, Tempo, Drums level, Auto bass (on: the bass and chord play in time with the rhythm).</li>
   <li><b>FX: Sound.</b> Reverb (the strings' send), Space (the plate's size), Width, Chord rev (the chord and bass's send). The drums stay dry.</li>
   <li><b>SEL: Chords.</b> Change the chord on any black key: press the key, then turn Root (KNOB 1) and Type (KNOB 2). The change goes into the chord set in use (PRESETS), so each set can hold a song's chords. KNOB 3 is Transpose (−6 to +6). KNOB 4, Invert, is how that button's chord lies: OM, as the Omnichord has it (its notes folded into one fixed octave, the root in the bass); Root, root position; 1st and 2nd, the inversions, with their bottom note in the bass too (C/E, C/G). Dots under a chord's name show it. (OCT− and OCT+ still move the strum plate's octave.)</li>
@@ -129,7 +130,7 @@ uninstalls the way Felucca and X0X do, and the installer can put M-VAVE's own fi
   <li><b>In, channel 1.</b> Notes pluck the nearest string.</li>
   <li><b>In, channel 2.</b> Play a chord on a keyboard and it becomes the chord, as if you'd pressed a black key.</li>
   <li><b>In, clock.</b> The rhythm follows MIDI clock and start / stop; the screen shows EXT for the tempo.</li>
-  <li><b>Out</b> (on by default, Setup page). The strings on channel 1, the chord on 2, the bass on 3, the drums on 10, and clock with start / stop when the rhythm runs on its own tempo.</li>
+  <li><b>Out</b> (on by default, Setup page). The strings on channel 1, the chord on 2, the bass on 3, the melody on 4, the drums on 10, and clock with start / stop when the rhythm runs on its own tempo.</li>
 </ul>
 <p class="small">To go back to the official
 firmware, use the installer's "Back to the stock firmware", or M-VAVE's updater, M-UPGRADE, from

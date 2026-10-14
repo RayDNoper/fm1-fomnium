@@ -1,0 +1,42 @@
+# the melody: HOME again for its page, switched on, playing with the rhythm while a chord is held; saved
+wait 200
+expect mel 0
+expect melseed 1
+expect view 0
+tap HOME
+expect view 8
+spin K1 80
+expect mel 80
+spin K3 4
+expect melseed 5
+spin K3 -10
+expect melseed 1
+spin K3 4
+# no chord: the rhythm plays, the melody waits
+tap PLAY
+wait 1500
+expect mellevel 0
+# C held: it plays
+key b1 down
+wait 3000
+expect playing 1
+expect mellevel >0
+shot melody.png
+key b1 up
+tap PLAY
+wait 800
+expect mellevel 0
+# off again shows Off; the settings are kept
+spin K1 -80
+expect mel 0
+spin K1 60
+tap SAVE
+reboot
+wait 100
+expect mel 60
+expect melseed 5
+# HOME from the melody's page: back to Play
+tap HOME
+expect view 8
+tap HOME
+expect view 0

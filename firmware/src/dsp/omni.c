@@ -200,7 +200,8 @@ void om_voicing_inv(int root, int type, int inv, int transpose, int octave, uint
 }
 
 /* ------------------------------------------------------------ commands --- */
-enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_PLATE, C_VOICE, C_CVOICE, C_SEQ, C_SEQTRK, C_BASS };
+enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_PLATE, C_VOICE, C_CVOICE, C_SEQ, C_SEQTRK, C_BASS,
+       C_MEL };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -222,6 +223,7 @@ void om_cvoice(int i) { post(C_CVOICE, i, 0); }
 void om_seq(int on, int key) { post(C_SEQ, on, key); }
 void om_seq_track(int t) { post(C_SEQTRK, t, 0); }
 void om_bass(int level) { post(C_BASS, level, 0); }
+void om_melody(int what, int value) { post(C_MEL, what, value); }
 void om_gate(int on) { post(C_GATE, on, 0); }
 void om_strum(int s) { post(C_STRUM, s, 0); }
 void om_play(int on) { post(C_PLAY, on, 0); }
@@ -232,6 +234,8 @@ void om_clock(int msg) { post(C_CLOCK, msg, 0); }
 volatile float om_str_level[OM_NSTR];
 volatile uint8_t om_str_note[OM_NSTR];        /* the note a pluck plays now */
 volatile float om_chord_level, om_bass_level;
+volatile float om_mel_level;
+volatile uint8_t om_mel_note;
 volatile uint8_t om_playing, om_step, om_steps = 32;
 volatile uint8_t om_drum_hit;
 volatile uint8_t om_ext;
@@ -240,7 +244,10 @@ const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
 
 static int16_t par[P_NPARAMS];
 static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate, bvol = 1.0f;
-static float pan_l[OM_NSTR], pan_r[OM_NSTR];
+/* the strings, and after them the melody's (MEL): a string of its own, in the middle */
+#define MEL OM_NSTR
+#define NV (OM_NSTR + 1)
+static float pan_l[NV], pan_r[NV];
 static int root, type, inv;
 static uint8_t harp_n[OM_NSTR], chord_n[OM_NCHORD], bass_n;   /* bass_n: the chord's bass note (its root, or as it lies) */
 static uint8_t plate;                         /* what the strum plate plays: PL_* (om_plate) */
@@ -278,8 +285,10 @@ typedef struct {
     uint16_t shim_off;
     uint8_t on, note;
     float kd;                                  /* as a DX7's voice: its decay */
+    uint8_t rel;                               /* let go (the melody's note ends): it dies away quickly */
 } str_t;
-static str_t str[OM_NSTR];
+static str_t str[NV];
+static float mel_gain;                         /* the melody's level */
 
 /* ---- the voices. The strings: the OM's harp, or a patch of the DX7 bank (om_dx.h). The chord: the OM's
  * organ, or a patch. The bass and the drums are the OM's own */
@@ -301,8 +310,8 @@ static inline float fm_osc(uint32_t ph)
     return a + (fm_sin[i + 1] - a) * ((float)(ph & 0x3FFFFFu) * (1.0f / 4194304.0f));
 }
 #include "om_dx.h"
-static dxv_t dxs[OM_NSTR], dxc[OM_NCHORD];     /* the strings and the chord's notes as a DX7's voices */
-static uint32_t str_age[OM_NSTR], str_clock;   /* when each string was plucked */
+static dxv_t dxs[NV], dxc[OM_NCHORD];          /* the strings and the chord's notes as a DX7's voices */
+static uint32_t str_age[NV], str_clock;        /* when each string was plucked */
 static int dx_has(int i)
 {
     const uint8_t (*t)[OM_DX_BYTES] = om_dx_tab;
@@ -328,17 +337,18 @@ static const char *dx_name(int i)              /* as the patch is named (until t
 #define DXC (cvoice >= OM_NCV)
 
 /* a string as a DX7's voice: the patch with its key held, under the string's own decay (Sustain: 99 % gone
- * after 0.6 s .. 12 s). No more than OM_DX_POLY at once: the one plucked longest ago dies away for it */
+ * after 0.6 s .. 12 s). No more than OM_DX_POLY at once (the melody's note among them): the string plucked
+ * longest ago dies away for it */
 static void dx_strum(str_t *v, int s, int n)
 {
     int i, live = 0, old = -1;
-    for (i = 0; i < OM_NSTR; i++)
+    for (i = 0; i < NV; i++)
         if (i != s && str[i].on && str[i].v > 0.0f) {
             live++;
-            if (old < 0 || str_clock - str_age[i] > str_clock - str_age[old])
+            if (i != MEL && (old < 0 || str_clock - str_age[i] > str_clock - str_age[old]))
                 old = i;
         }
-    if (live >= OM_DX_POLY)
+    if (live >= OM_DX_POLY && old >= 0)
         str[old].v = 0.0f;
     str_age[s] = ++str_clock;
     dx_on(&dxs[s], om_dx_tab[voice - OM_NSV], n, !v->on);
@@ -351,16 +361,17 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
         om_midi_out(st, d1, d2);
 }
 
-static void strum(int s)
+/* string s plays note n (the melody's on MIDI channel 4, the strings' on 1) */
+#define STR_CH(s) ((s) == MEL ? 3u : 0u)
+static void pluck(int s, int n)
 {
     str_t *v = &str[s];
-    int n = harp_n[s];
     float u = fm_exp2f((float)(n - 69) * (1.0f / 12.0f)) * tunefac, base;
     if (v->on && v->note != n)
-        midi(0x80, v->note, 0);
+        midi(0x80 | STR_CH(s), v->note, 0);
     if (v->on)
-        midi(0x80, n, 0);
-    midi(0x90, (uint32_t)n, 100);
+        midi(0x80 | STR_CH(s), (uint32_t)n, 0);
+    midi(0x90 | STR_CH(s), (uint32_t)n, 100);
     if (!v->on) {
         v->y1 = v->y2 = 0.0f;
         v->g = 0.0f;
@@ -368,6 +379,7 @@ static void strum(int s)
     if (DXS)
         dx_strum(v, s, n);
     v->on = 1;
+    v->rel = 0;
     v->note = (uint8_t)n;
     v->inc = note_inc(n);
     v->v = 1.0f;
@@ -380,6 +392,7 @@ static void strum(int s)
         v->shim_off = (uint16_t)(((i & 1) ? 27 * i : 14 * i) % 360);
     }
 }
+static void strum(int s) { pluck(s, harp_n[s]); }
 
 /* ---- chord and bass */
 enum { E_OFF, E_DEC, E_SUS, E_REL, E_BDEC, E_CUT };
@@ -526,6 +539,268 @@ static void seq_beat(void)
     seq_left--;
 }
 
+/* ---- the melody (om_melody): a tune made as it plays, a step at a time, by rules a songwriter keeps without
+ * thinking. Its notes come from the chord's scale (OM_TYPE_SCALE) around D5: on the strong beats the chord's
+ * tones, between them the scale's notes too, which then move on by a step; mostly steps, some thirds, now and
+ * then a leap, which the next notes turn back from; drawn back towards the middle. Its rhythm a beat at a
+ * time, from a few figures (a quarter, eighths, a dotted one...), busier with Density. Four bars make a
+ * phrase: a figure, the same again (a little changed), the same, then a new bar that ends on the root or the
+ * third and rests. The figure keeps its notes as steps of the scale from the chord's root, so over another
+ * chord it moves with it. With Repeat the next phrase keeps the figure; the seed sets the dice (from PLAY) */
+static uint8_t mel_lvl, mel_den = 50, mel_seed = 1, mel_rep = 70;
+static uint32_t mel_rng = 1;
+static int mel_pos, mel_bar = 3, mel_nb = 4, mel_b = 4;   /* the step in the bar, the bar in the phrase, its beats, a beat's steps */
+static int mel_last, mel_last2;                 /* the last note and the one before (MIDI; 0: none yet) */
+static int8_t mel_leap;                         /* its move, in steps of the scale */
+static uint8_t mel_pass, mel_same;              /* it was not the chord's (the next moves by a step); notes the same */
+static uint8_t mel_cell, mel_fresh;             /* this beat's notes (bits: its steps); the bar is made new */
+#define MEL_MAX 48                              /* a bar: up to 6 beats of 8 steps */
+static uint8_t mot_n;                           /* the figure: its bar's steps (0: none) */
+static int8_t mot[MEL_MAX];                     /* each step: a note (a step of the scale up from the root, +64 */
+                                                /* off: 0 nothing, 1 let go, else the note + 64 */
+static uint32_t mel_rand(void)
+{
+    uint32_t x = mel_rng;
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    return mel_rng = x;
+}
+static int mel_dice(int pct) { return (int)(mel_rand() % 100u) < pct; }
+
+static int mel_mid(void) { return 74 + 12 * par[P_OCTAVE]; }
+/* the root the scale's steps count from: the chord's, in the octave below the middle */
+static int mel_root(int r) { return fold(r + par[P_TRANSPOSE], mel_mid() - 6); }
+static int mel_note(int r, int t, int d)        /* a step of the chord's scale: its note */
+{
+    int o = d >= 0 ? d / 7 : -((6 - d) / 7);
+    return mel_root(r) + 12 * o + OM_TYPE_SCALE[t][d - 7 * o];
+}
+static int chord_tone(int r, int t, int n)      /* a tone of the chord (and its fifth, where the scale has one) */
+{
+    int pc = ((n - r - par[P_TRANSPOSE]) % 12 + 12) % 12;
+    return pc == OM_TYPE_TONES[t][0] || pc == OM_TYPE_TONES[t][1] || pc == OM_TYPE_TONES[t][2] ||
+           (pc == 7 && OM_TYPE_SCALE[t][4] == 7);
+}
+static int mel_near(int n)                      /* the step of this chord's scale nearest a note (none: the middle) */
+{
+    int d, best = 0, bd = 99;
+    if (!n)
+        n = mel_mid();
+    for (d = -10; d <= 17; d++) {
+        int x = mel_note(root, type, d) - n;
+        x = x < 0 ? -x : x;
+        if (x < bd) {
+            bd = x;
+            best = d;
+        }
+    }
+    return best;
+}
+
+/* the chord after this one, if the sequence plays its last beat now: a note may lead into it */
+static int mel_next(int *r, int *t)
+{
+    int i, c;
+    if (!seq_drives() || seq_left || seq_i < 0)
+        return 0;
+    i = seq_beats(seq_trk, seq_i + 1) ? seq_i + 1 : 0;
+    c = om_seq_tab[seq_trk][i][0];
+    *r = ((c & 15) + seq_key) % 12;
+    *t = (c >> 4) < CH_NTYPES ? c >> 4 : 0;
+    return 1;
+}
+
+/* the next note, by the rules. weight: 2 a strong beat, 1 a beat, 0 between; end: the phrase's last note */
+static int mel_pick(int weight, int end)
+{
+    int pd = mel_near(mel_last), pd2 = mel_last2 ? mel_near(mel_last2) : 99, mid = mel_mid(), d, tot = 0, nr = 0, nt = 0;
+    int w[28], nx = mel_next(&nr, &nt) && weight == 0;
+    for (d = -10; d <= 17; d++) {
+        int n = mel_note(root, type, d), a = d - pd < 0 ? pd - d : d - pd, ct = chord_tone(root, type, n), x;
+        x = a == 0 ? 3 : a == 1 ? 16 : a == 2 ? 7 : a == 3 ? 3 : a == 4 ? 2 : a <= 7 ? 1 : 0;
+        if (mel_pass && a != 1)                   /* a note off the chord moves on by a step */
+            x = 0;
+        if (a == 0 && mel_same)                   /* not three the same */
+            x = 0;
+        if (a == 1 && d == pd2)                   /* nor a trill */
+            x /= 3;
+        if (weight == 2)
+            x *= ct ? 8 : 0;
+        else if (weight == 1)
+            x *= ct ? 3 : 1;
+        else
+            x *= 2;
+        if (mel_leap >= 3 || mel_leap <= -3) {    /* after a leap: back the other way */
+            if ((d - pd) * mel_leap > 0)
+                x /= 4;
+            else if (d != pd)
+                x *= 2;
+        }
+        if ((n > mid + 4 && d > pd) || (n < mid - 4 && d < pd))   /* drawn towards the middle */
+            x /= 2;
+        if (end) {                                /* the phrase ends on the root, or the third */
+            int pc = ((n - root - par[P_TRANSPOSE]) % 12 + 12) % 12;
+            x = a > 4 ? 0 : pc == 0 ? 4 * (x + 1) : pc == OM_TYPE_TONES[type][1] ? 2 * (x + 1) : 0;
+        }
+        if (nx && chord_tone(nr, nt, n))          /* the chord to come: lead into it */
+            x *= 3;
+        if (n < mid - 9 || n > mid + 10)          /* its register */
+            x = 0;
+        w[d + 10] = x;
+        tot += x;
+    }
+    if (!tot) {                                   /* nothing fits: the chord's tone nearest */
+        int best = pd, bd = 99;
+        for (d = -10; d <= 17; d++) {
+            int n = mel_note(root, type, d), a = d - pd < 0 ? pd - d : d - pd;
+            if (chord_tone(root, type, n) && n >= mid - 9 && n <= mid + 10 && a < bd) {
+                bd = a;
+                best = d;
+            }
+        }
+        return best;
+    }
+    tot = (int)(mel_rand() % (uint32_t)tot);
+    for (d = -10; d < 17 && tot >= w[d + 10]; d++)
+        tot -= w[d + 10];
+    return d;
+}
+
+/* a beat's notes: the steps of it that start one (bits); 0 a rest; 0x80 the note before holds on */
+static uint8_t mel_rhythm(int b)
+{
+    static const uint8_t C4[] = {0, 0x80, 0x01, 0x05, 0x09, 0x0D, 0x0F, 0x04}, C6[] = {0, 0x80, 0x01, 0x15, 0x11, 0x05};
+    int d = mel_den, w[8], n, i, tot = 0;
+    const uint8_t *c = b == 4 ? C4 : C6;
+    w[0] = (100 - d) / 5 + 3;                     /* rest, hold, a quarter, eighths, ... */
+    w[1] = (100 - d) / 3 + 2;
+    w[2] = 30;
+    w[3] = 10 + d / 2;
+    if (b == 4) {
+        w[4] = 6 + d / 8;                         /* dotted, an eighth and two sixteenths, sixteenths, off the beat */
+        w[5] = d / 6;
+        w[6] = d * d / 600;
+        w[7] = 4;
+        n = 8;
+    } else if (b == 6) {                          /* 12/8: three eighths, a quarter and an eighth */
+        w[4] = 8;
+        n = 5;
+    } else {
+        n = 4;
+    }
+    for (i = 0; i < n; i++)
+        tot += w[i];
+    tot = (int)(mel_rand() % (uint32_t)tot);
+    for (i = 0; i < n - 1 && tot >= w[i]; i++)
+        tot -= w[i];
+    if (b != 4 && b != 6 && i == 3)               /* other beats: halves */
+        return (uint8_t)(1u | 1u << (b / 2));
+    if (b == 6 && i == 3)
+        return 0x15;
+    return c[i];
+}
+
+static void mel_play(int d)                     /* the note: the melody's string plucked */
+{
+    int n = mel_note(root, type, d), pd = mel_near(mel_last);
+    mel_leap = (int8_t)(mel_last ? d - pd : 0);
+    mel_same = (uint8_t)(mel_last == n);
+    mel_pass = (uint8_t)!chord_tone(root, type, n);
+    mel_last2 = mel_last;
+    mel_last = n;
+    pluck(MEL, n);
+    om_mel_note = (uint8_t)n;
+}
+static void mel_let_go(void)
+{
+    if (str[MEL].on)
+        str[MEL].rel = 1;
+}
+
+static void mel_start(void)                     /* PLAY: from the seed, a new phrase */
+{
+    mel_rng = 0x9E3779B9u * (mel_seed + 1u);
+    mel_pos = 0;
+    mel_bar = 3;
+    mel_last = mel_last2 = 0;
+    mel_pass = mel_same = 0;
+    mel_leap = 0;
+    mot_n = 0;
+}
+
+/* a step of the rhythm (r): the melody's, as it falls in its bar */
+static void mel_step(const om_rhythm_t *r)
+{
+    int k, sb, beat, weight, live = mel_lvl && (gate || seq_drives());
+    if (mel_pos == 0) {                           /* a bar: its beats as the rhythm has them, up to 6 */
+        mel_b = r->beat < 1 ? 4 : r->beat > 8 ? 8 : r->beat;
+        mel_nb = r->len / mel_b;
+        if (mel_nb < 2)
+            mel_nb = 4;
+        while (mel_nb > 4 && !(mel_nb & 1))
+            mel_nb /= 2;
+        if (mel_nb > 6)
+            mel_nb = 4;
+        mel_bar = (mel_bar + 1) & 3;
+        if (mel_bar == 0 && (!mot_n || !mel_dice(mel_rep)))
+            mot_n = 0;                            /* a new figure (Repeat: the odds of keeping it) */
+        if (mot_n != mel_nb * mel_b)              /* (another rhythm, another bar: anew) */
+            mot_n = 0;
+        mel_fresh = mel_bar == 3 || !mot_n;
+        if (mel_bar == 0)
+            mel_let_go();                         /* a breath between phrases */
+    }
+    beat = mel_pos / mel_b;
+    sb = mel_pos % mel_b;
+    weight = sb ? 0 : beat == 0 || (mel_nb == 4 && beat == 2) ? 2 : 1;
+    if (mel_fresh) {
+        if (!sb)
+            mel_cell = mel_bar == 3 && beat == mel_nb - 2 ? 0x01 : mel_bar == 3 && beat == mel_nb - 1 ? 0x80
+                                                                                                    : mel_rhythm(mel_b);
+        if (sb == 0 && !(mel_cell & 0x81))
+            k = 1;                                /* a rest */
+        else if (mel_cell >> sb & 1u && !(mel_cell & 0x80))
+            k = 64 + mel_pick(weight, mel_bar == 3 && beat == mel_nb - 2);
+        else
+            k = 0;
+        if (mel_bar == 0)
+            mot[mel_pos] = (int8_t)k;
+    } else {                                      /* the figure again, over this chord */
+        k = mot[mel_pos];
+        if (k >= 32) {
+            int d = k - 64, vary = (100 - mel_rep) / 2 + (mel_bar == 1 ? 10 : 0);
+            if (mel_dice(vary)) {
+                d = mel_pick(weight, 0);
+            } else {                              /* its step of the scale, in the octave nearest the last note */
+                int p = mel_near(mel_last), mid = mel_mid();
+                while (d - p > 3)
+                    d -= 7;
+                while (p - d > 3)
+                    d += 7;
+                while (mel_note(root, type, d) > mid + 10)
+                    d -= 7;
+                while (mel_note(root, type, d) < mid - 9)
+                    d += 7;
+                if (weight == 2 && !chord_tone(root, type, mel_note(root, type, d)))
+                    d += chord_tone(root, type, mel_note(root, type, d - 1)) ? -1 : 1;
+            }
+            k = 64 + d;
+        }
+    }
+    if (live && k == 1)
+        mel_let_go();
+    else if (live && k >= 32)
+        mel_play(k - 64);
+    else if (!live)
+        mel_let_go();
+    if (++mel_pos >= mel_nb * mel_b) {
+        if (mel_bar == 0)
+            mot_n = (uint8_t)(mel_nb * mel_b);
+        mel_pos = 0;
+    }
+}
+
 static void do_step(void)
 {
     const om_rhythm_t *r = om_rhythm(rh);
@@ -550,6 +825,7 @@ static void do_step(void)
         if (r->chord[step] != '-')
             chord_cmd(r->chord[step]);
     }
+    mel_step(r);
     om_step = (uint8_t)step;
     if (++step >= r->len) {
         step = 0;
@@ -710,14 +986,14 @@ static void apply(int p, int v)
 static void quiet(void)
 {
     int i;
-    for (i = 0; i < OM_NSTR; i++)
+    for (i = 0; i < NV; i++)
         str[i].on = 0;
     for (i = 0; i < OM_NCHORD; i++)
         chv[i].st = E_OFF;
     bsv.st = E_OFF;
     for (i = 0; i < OM_NDRUM; i++)
         drum[i].on = 0;
-    for (i = 0; i < 3; i++)
+    for (i = 0; i < 4; i++)
         om_midi_out(0xB0 | (uint32_t)i, 123, 0);
 }
 
@@ -731,6 +1007,7 @@ void om_init(void)
     for (i = 0; i <= 1024; i++)
         fm_sin[i] = fm_sinf((float)(i & 1023) * (FM_PI / 512.0f));
     plate_init();
+    pan_l[MEL] = pan_r[MEL] = 0.7071f;
     for (i = 0; i < OM_NURHY; i++)
         if (!urh[i].name)
             om_rhythm_user(i, 0);
@@ -762,6 +1039,7 @@ static void play_start(int from_top)
         pulse = 0;
         seq_i = -1;
         seq_left = 0;
+        mel_start();
     }
     pulse_left = 0.0f;
     om_playing = 1;
@@ -772,6 +1050,7 @@ static void play_start(int from_top)
 static void play_stop(void)
 {
     om_playing = 0;
+    mel_let_go();
     if (!om_ext)
         midi(0xFC, 0, 0);
     if (!gate) {
@@ -799,10 +1078,10 @@ static void drain(void)
             retune();
             break;
         case C_VOICE:                             /* the ringing strings stop: they are the other voice's */
-            for (b = 0; b < OM_NSTR; b++)
+            for (b = 0; b < NV; b++)
                 if (str[b].on) {
                     str[b].on = 0;
-                    midi(0x80, str[b].note, 0);
+                    midi(0x80 | STR_CH(b), str[b].note, 0);
                 }
             voice = (uint8_t)(a < OM_NVOICES && om_voice_ok(a) ? a : 0);
             break;
@@ -823,6 +1102,21 @@ static void drain(void)
             break;
         case C_BASS:
             bvol = (float)(a > 100 ? 100 : a) * 0.02f;
+            break;
+        case C_MEL:
+            b = b < 0 ? 0 : b > 100 ? 100 : b;
+            if (a == OM_MEL_LEVEL) {
+                mel_lvl = (uint8_t)b;
+                mel_gain = (float)b * 0.01f;
+            } else if (a == OM_MEL_DENSITY) {
+                mel_den = (uint8_t)b;
+            } else if (a == OM_MEL_SEED) {            /* another seed: another tune, from its next phrase */
+                mel_seed = (uint8_t)b;
+                mel_rng = 0x9E3779B9u * (mel_seed + 1u);
+                mot_n = 0;
+            } else if (a == OM_MEL_REPEAT) {
+                mel_rep = (uint8_t)b;
+            }
             break;
         case C_SEQTRK:                            /* when the one playing comes round; none does: now */
             seq_next = (uint8_t)(a < OM_NTRK ? a : 0);
@@ -893,9 +1187,19 @@ static float mixl[BLK], mixr[BLK], send[BLK];
 /* a DX7's voice for the string or chord note being rendered, before its envelope */
 static float dxbuf[BLK];
 
+#define REL_K 0.99962f                          /* let go: gone in ~0.1 s */
+static void str_level(int s, float e)
+{
+    if (s < OM_NSTR)
+        om_str_level[s] = e;
+    else
+        om_mel_level = e;
+}
+
 static void render_dx(str_t *v, int s, uint32_t n)
 {
-    const float lvl = 0.4f * v1, gl = pan_l[s], gr = pan_r[s], kd = v->kd;
+    const float lvl = 0.4f * v1 * (s == MEL ? mel_gain : 1.0f), gl = pan_l[s], gr = pan_r[s],
+                kd = v->rel ? v->kd * REL_K : v->kd;
     float e = v->v, g = v->g;
     uint32_t j;
     dx_render(&dxs[s], dxbuf, n);
@@ -911,14 +1215,14 @@ static void render_dx(str_t *v, int s, uint32_t n)
             e = 0.0f;
             if (g < 1e-4f) {
                 v->on = 0;
-                midi(0x80, v->note, 0);
+                midi(0x80 | STR_CH(s), v->note, 0);
                 break;
             }
         }
     }
     v->v = e;
     v->g = g;
-    om_str_level[s] = v->on ? e : 0.0f;
+    str_level(s, v->on ? e : 0.0f);
 }
 
 static void render_strings(uint32_t n)
@@ -926,13 +1230,13 @@ static void render_strings(uint32_t n)
     const float g1 = v1 * (1.0f - 0.5f * v2) * 1.2f,
                 g2 = v2 * (1.0f - 0.5f * v1) * 0.85f * 1.2f;
     int s;
-    for (s = 0; s < OM_NSTR; s++) {
+    for (s = 0; s < NV; s++) {
         str_t *v = &str[s];
         float pos = v->pos, y1 = v->y1, y2 = v->y2, e = v->v, g = v->g, c = v->c, m = v->m;
-        const float inc = v->inc, gl = pan_l[s], gr = pan_r[s];
+        const float inc = v->inc, gl = pan_l[s], gr = pan_r[s], sg = s == MEL ? mel_gain : 1.0f;
         uint32_t j;
         if (!v->on) {
-            om_str_level[s] = 0.0f;
+            str_level(s, 0.0f);
             continue;
         }
         if (DXS) {
@@ -952,17 +1256,19 @@ static void render_strings(uint32_t n)
             y1 += c * (x1 - y1);
             y2 += c * (x2 - y2);
             g += 0.05f * (e - g);
-            o = (y1 * g1 + y2 * g2) * g;
+            o = (y1 * g1 + y2 * g2) * g * sg;
             mixl[j] += o * gl;
             mixr[j] += o * gr;
             send[j] += o * rsend;
             pos = adv(pos, inc);
             e -= sus_rate * (0.34f + 8.5f * e * e * e);
+            if (v->rel)
+                e *= REL_K;
             if (e <= 0.0f) {
                 e = 0.0f;
                 if (g < 1e-4f) {
                     v->on = 0;
-                    midi(0x80, v->note, 0);
+                    midi(0x80 | STR_CH(s), v->note, 0);
                     break;
                 }
             }
@@ -974,7 +1280,7 @@ static void render_strings(uint32_t n)
         v->g = g;
         v->c = c;
         v->m = m;
-        om_str_level[s] = v->on ? e : 0.0f;
+        str_level(s, v->on ? e : 0.0f);
     }
     shim_ph += shim_rate * (float)n;
     while (shim_ph >= 360.0f)

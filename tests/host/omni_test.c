@@ -3,16 +3,20 @@
  * manual (p.49), the chord and bass registers, envelopes that end, the rhythm's timing, and an output
  * that stays finite and inside full scale with everything playing at once. */
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include "omni.h"
 
 static int bad, midi_n;
+static uint8_t mel_got[512];                   /* the melody's notes (MIDI channel 4), as they came */
+static int mel_n, mel_strings;                 /* how many; and notes on the strings' channel */
 void om_midi_out(uint32_t st, uint32_t d1, uint32_t d2)
 {
-    (void)st;
-    (void)d1;
-    (void)d2;
+    if (st == 0x93u && d2 && mel_n < 512)
+        mel_got[mel_n++] = (uint8_t)d1;
+    if (st == 0x90u && d2)
+        mel_strings++;
     midi_n++;
 }
 
@@ -39,6 +43,8 @@ static void run(int blocks)
         }
     }
 }
+
+static void run_ms(int ms) { run(ms * 441 / 2560 + 1); }
 
 int main(void)
 {
@@ -320,7 +326,58 @@ int main(void)
         run(200);
         check("DX: and ends when let go", om_chord_level == 0.0f);
         om_cvoice(0);
+        run(1);                                   /* (heard before om_init() empties the queue) */
         om_dx_tab = 0;
+    }
+    {   /* the melody: over a held C, then Am, its notes from the chord's scale in its register; the same
+         * seed the same tune, another another; off, or no chord, nothing */
+        static uint8_t first[512];
+        int i, n1 = 0, inkey = 1, inrange = 1, steps = 0, same = 1, other = 0, run;
+        for (run = 0; run < 4; run++) {
+            om_init();
+            om_melody(OM_MEL_LEVEL, run == 3 ? 0 : 80);
+            om_melody(OM_MEL_SEED, run == 2 ? 7 : 1);
+            om_chord(0, CH_MAJ);
+            om_gate(1);
+            om_play(1);
+            mel_n = mel_strings = 0;
+            run_ms(8000);
+            om_chord(9, CH_MIN);
+            run_ms(8000);
+            om_play(0);
+            om_gate(0);
+            run_ms(500);
+            if (run == 0) {
+                memcpy(first, mel_got, sizeof first);
+                n1 = mel_n;
+                for (i = 0; i < mel_n; i++) {
+                    int pc = mel_got[i] % 12;
+                    inkey &= pc == 0 || pc == 2 || pc == 4 || pc == 5 || pc == 7 || pc == 9 || pc == 11;
+                    inrange &= mel_got[i] >= 74 - 9 && mel_got[i] <= 74 + 10;
+                    if (i)
+                        steps += abs(mel_got[i] - mel_got[i - 1]) <= 4;
+                }
+                check("melody: plays, on MIDI channel 4 (not the strings')", mel_n > 20 && !mel_strings);
+                check("melody: the chord's scale (C major, A minor)", inkey);
+                check("melody: in its register (around D5)", inrange);
+                check("melody: mostly steps (2/3 of its moves a third or less)", steps * 3 >= (mel_n - 1) * 2);
+            } else if (run == 1) {
+                same = mel_n == n1 && !memcmp(first, mel_got, (size_t)mel_n);
+                check("melody: the same seed, the same tune", same);
+            } else if (run == 2) {
+                other = mel_n != n1 || memcmp(first, mel_got, (size_t)(mel_n < n1 ? mel_n : n1));
+                check("melody: another seed, another tune", other);
+            } else {
+                check("melody: off, nothing", mel_n == 0);
+            }
+        }
+        om_init();
+        om_melody(OM_MEL_LEVEL, 80);
+        om_play(1);
+        mel_n = 0;
+        run_ms(4000);
+        om_play(0);
+        check("melody: no chord, nothing", mel_n == 0);
     }
     printf("%s\n", bad ? "OMNI TEST FAILED" : "omni test passed");
     return bad != 0;
