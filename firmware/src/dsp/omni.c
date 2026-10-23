@@ -241,6 +241,7 @@ volatile uint8_t om_drum_hit;
 volatile uint8_t om_ext;
 volatile uint8_t om_seq_trk, om_seq_at, om_seq_n;
 const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
+const uint8_t (*volatile om_seq_mel)[OM_NSEQ];
 
 static int16_t par[P_NPARAMS];
 static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate, bvol = 1.0f;
@@ -507,6 +508,8 @@ static int seq_beats(int t, int i)              /* (the table is the app's: what
 }
 static int seq_drives(void) { return seq_on && om_playing && seq_beats(seq_trk, 0); }
 
+static void mel_seq_step(int i);
+
 static void seq_beat(void)
 {
     if (!seq_left) {
@@ -535,6 +538,7 @@ static void seq_beat(void)
         }
         om_seq_at = (uint8_t)i;
         om_seq_n++;
+        mel_seq_step(i);
     }
     seq_left--;
 }
@@ -554,6 +558,9 @@ static int mel_last, mel_last2;                 /* the last note and the one bef
 static int8_t mel_leap;                         /* its move, in steps of the scale */
 static uint8_t mel_pass, mel_same;              /* it was not the chord's (the next moves by a step); notes the same */
 static uint8_t mel_cell, mel_fresh;             /* this beat's notes (bits: its steps); the bar is made new */
+static uint8_t mel_trk, mel_sd, mel_cad;        /* the sequence's track holds melodies (they play, and only they);
+                                                 * the step's (its seed, 0: none); this beat ends it (1, 2: the
+                                                 * last note, then held) */
 #define MEL_MAX 48                              /* a bar: up to 6 beats of 8 steps */
 static uint8_t mot_n;                           /* the figure: its bar's steps (0: none) */
 static int8_t mot[MEL_MAX];                     /* each step: a note (a step of the scale up from the root, +64 */
@@ -721,6 +728,28 @@ static void mel_let_go(void)
 static void mel_start(void)                     /* PLAY: from the seed, a new phrase */
 {
     mel_rng = 0x9E3779B9u * (mel_seed + 1u);
+    mel_trk = 0;
+    mel_pos = 0;
+    mel_bar = 3;
+    mel_last = mel_last2 = 0;
+    mel_pass = mel_same = 0;
+    mel_leap = 0;
+    mot_n = 0;
+}
+
+/* a step of the sequence begins (i): if its track holds melodies, this step's, made anew from its seed over its
+ * chord, a phrase of its own (so it is the same each time round, wherever the track was before it) */
+static void mel_seq_step(int i)
+{
+    const uint8_t (*m)[OM_NSEQ] = om_seq_mel;
+    int k;
+    mel_trk = 0;
+    for (k = 0; m && k < OM_NSEQ && seq_beats(seq_trk, k); k++)
+        mel_trk |= m[seq_trk][k] != 0;
+    mel_sd = m ? m[seq_trk][i] : 0;
+    if (!mel_trk)
+        return;
+    mel_rng = 0x6C8E9CF5u * (mel_sd + 1u) ^ 0x2545F491u;
     mel_pos = 0;
     mel_bar = 3;
     mel_last = mel_last2 = 0;
@@ -732,7 +761,7 @@ static void mel_start(void)                     /* PLAY: from the seed, a new ph
 /* a step of the rhythm (r): the melody's, as it falls in its bar */
 static void mel_step(const om_rhythm_t *r)
 {
-    int k, sb, beat, weight, live = mel_lvl && (gate || seq_drives());
+    int k, sb, beat, weight, sq = mel_trk && seq_drives(), live = mel_lvl && (sq ? mel_sd : gate || seq_drives());
     if (mel_pos == 0) {                           /* a bar: its beats as the rhythm has them, up to 6 */
         mel_b = r->beat < 1 ? 4 : r->beat > 8 ? 8 : r->beat;
         mel_nb = r->len / mel_b;
@@ -754,17 +783,20 @@ static void mel_step(const om_rhythm_t *r)
     beat = mel_pos / mel_b;
     sb = mel_pos % mel_b;
     weight = sb ? 0 : beat == 0 || (mel_nb == 4 && beat == 2) ? 2 : 1;
-    if (mel_fresh) {
+    if (!sb)                                      /* a step's melody of four beats or more ends on its root or third */
+        mel_cad = (uint8_t)(sq && seq_beats(seq_trk, seq_i) >= 4 && seq_left <= 1 ? 2 - seq_left : 0);
+    if (mel_fresh || mel_cad) {
+        int end = mel_cad ? mel_cad == 1 : mel_bar == 3 && beat == mel_nb - 2;
         if (!sb)
-            mel_cell = mel_bar == 3 && beat == mel_nb - 2 ? 0x01 : mel_bar == 3 && beat == mel_nb - 1 ? 0x80
-                                                                                                    : mel_rhythm(mel_b);
+            mel_cell = mel_cad ? (mel_cad == 1 ? 0x01 : 0x80) : mel_bar == 3 && beat == mel_nb - 2 ? 0x01
+                     : mel_bar == 3 && beat == mel_nb - 1 ? 0x80 : mel_rhythm(mel_b);
         if (sb == 0 && !(mel_cell & 0x81))
             k = 1;                                /* a rest */
         else if (mel_cell >> sb & 1u && !(mel_cell & 0x80))
-            k = 64 + mel_pick(weight, mel_bar == 3 && beat == mel_nb - 2);
+            k = 64 + mel_pick(weight, end);
         else
             k = 0;
-        if (mel_bar == 0)
+        if (mel_bar == 0 && mel_fresh)
             mot[mel_pos] = (int8_t)k;
     } else {                                      /* the figure again, over this chord */
         k = mot[mel_pos];

@@ -394,6 +394,8 @@ static int expect(const char *what, const char *val)
         got = SQ_TYPE(atoi(what + 7) % NSEQ);
     else if (!strncmp(what, "seqbeats", 8))
         got = SQ_BEATS(atoi(what + 8) % NSEQ);
+    else if (!strncmp(what, "seqmel", 6))         /* step N's melody (its seed, 0 none) */
+        got = proj.seq_mel[proj.seq_trk][atoi(what + 6) % NSEQ];
     else if (!strncmp(what, "seqinv", 6))         /* how step N's chord lies, a button's, the chord's now */
         got = SQ_INV(atoi(what + 6) % NSEQ);
     else if (!strncmp(what, "padinv", 6))

@@ -106,6 +106,10 @@ void om_plate(int mode, int shift);
 #define OM_NSEQ 32
 #define OM_SEQ_BEATS 16
 extern const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
+/* and a melody for each step (the app's table, read as a step begins): a seed, 1..255, from which the melody
+ * makes that step's tune over its chord, the same each time round; 0 none. A track with any plays them, and
+ * rests on its other steps; one with none has the melody as ever (om_melody: its level for both) */
+extern const uint8_t (*volatile om_seq_mel)[OM_NSEQ];
 void om_seq(int on, int key);
 void om_seq_track(int t);
 /* the melody: while the rhythm runs and a chord sounds, a tune of its own over the chords, on the strings'

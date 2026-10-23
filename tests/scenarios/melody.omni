@@ -40,3 +40,54 @@ tap HOME
 expect view 8
 tap HOME
 expect view 0
+# the sequence's melodies: on its page, OCT- makes one for the step at the cursor, OCT+ copies and pastes,
+# OCT+ held takes it away; they play on their steps, and are saved
+expect playing 0
+tap HOME
+expect view 8
+spin K1 -60
+expect mel 0
+tap REC
+expect view 7
+tapkey b1
+tapkey b0
+expect seqsel 2
+tap OCT-
+expect seqmel2 0
+spin K1 -2
+expect seqsel 0
+expect par13 0
+tap OCT-
+expect seqmel0 >0
+expect par13 0
+expect mel 80
+shot seq-melody.png
+tap OCT+
+spin K1 1
+tap OCT+
+expect seqmel1 >0
+press OCT+
+wait 900
+release OCT+
+expect seqmel1 0
+tap OCT+
+expect seqmel1 >0
+press OCT+
+wait 900
+release OCT+
+expect seqmel1 0
+# PLAY: the first step's melody sounds, the second step's (none) is silent
+tap PLAY
+wait 1500
+expect seqat 0
+expect mellevel >0
+wait 2200
+expect seqat 1
+expect mellevel 0
+tap PLAY
+wait 300
+tap SAVE
+reboot
+wait 100
+expect seqmel0 >0
+expect seqmel1 0

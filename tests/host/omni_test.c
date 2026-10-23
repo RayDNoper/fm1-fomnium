@@ -11,10 +11,13 @@
 static int bad, midi_n;
 static uint8_t mel_got[512];                   /* the melody's notes (MIDI channel 4), as they came */
 static int mel_n, mel_strings;                 /* how many; and notes on the strings' channel */
+static uint8_t mel_at[512];                    /* the sequence's step each came in */
 void om_midi_out(uint32_t st, uint32_t d1, uint32_t d2)
 {
-    if (st == 0x93u && d2 && mel_n < 512)
+    if (st == 0x93u && d2 && mel_n < 512) {
+        mel_at[mel_n] = om_seq_at;
         mel_got[mel_n++] = (uint8_t)d1;
+    }
     if (st == 0x90u && d2)
         mel_strings++;
     midi_n++;
@@ -377,7 +380,58 @@ int main(void)
         mel_n = 0;
         run_ms(4000);
         om_play(0);
+        run_ms(1);
         check("melody: no chord, nothing", mel_n == 0);
+    }
+    {   /* the sequence's melodies: C F Am G, four beats each, melodies on the first and third steps only. They
+         * play there and nowhere else, the same each time round; the step's seed changed, its tune changes */
+        static uint8_t sq[OM_NTRK][OM_NSEQ][2], sm[OM_NTRK][OM_NSEQ], a1[256];
+        static const uint8_t CH[4] = {0, 5, 9 | CH_MIN << 4, 7};
+        int i, k, n1, n2 = 0, only = 1, both = 0, same, pc = 1;
+        for (i = 0; i < 4; i++) {
+            sq[0][i][0] = CH[i];
+            sq[0][i][1] = 4;
+        }
+        sm[0][0] = 17;
+        sm[0][2] = 200;
+        om_init();
+        om_seq_tab = sq;
+        om_seq_mel = sm;
+        om_melody(OM_MEL_LEVEL, 80);
+        om_seq(1, 0);
+        om_play(1);
+        mel_n = 0;
+        run_ms(4 * 4 * 60000 / 116 + 100);        /* once round */
+        n1 = mel_n;
+        memcpy(a1, mel_got, (size_t)n1);
+        for (i = 0; i < n1; i++) {
+            only &= mel_at[i] == 0 || mel_at[i] == 2;
+            both |= 1 << mel_at[i];
+        }
+        run_ms(4 * 4 * 60000 / 116);              /* and again */
+        same = mel_n == 2 * n1 && !memcmp(a1, mel_got + n1, (size_t)n1);
+        for (i = 0; i < mel_n; i++)               /* each in its step's chord's scale (C, F, A minor) */
+            pc &= mel_at[i] == 0 ? (0xAB5 >> (mel_got[i] % 12) & 1) : (0xAB5 >> ((mel_got[i] + 7) % 12) & 1) ||
+                                                                         mel_at[i] == 2;
+        check("sequence melodies: on their steps only", n1 > 4 && only && both == 5);
+        check("sequence melodies: the same each time round", same);
+        check("sequence melodies: in their chords' scales", pc);
+        sm[0][0] = 18;                            /* another seed: another tune there */
+        mel_n = 0;
+        run_ms(2 * 4 * 4 * 60000 / 116);         /* (it is read as the step begins: the next round) */
+        for (i = 0; i < mel_n && mel_at[i] != 2; i++)
+            ;
+        for (; i < mel_n && mel_at[i] != 0; i++)
+            ;
+        for (k = 0; i < mel_n && mel_at[i] == 0; i++, k++)
+            n2 += k >= n1 || mel_got[i] != a1[k];
+        check("sequence melodies: another seed, another tune", n2 > 0);
+        om_play(0);
+        sm[0][0] = sm[0][2] = 0;
+        om_seq_mel = 0;
+        om_seq_tab = 0;
+        om_seq(0, 0);
+        run(1);
     }
     printf("%s\n", bad ? "OMNI TEST FAILED" : "omni test passed");
     return bad != 0;

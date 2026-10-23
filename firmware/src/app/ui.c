@@ -6,7 +6,9 @@
  *   black keys     the chord buttons; hold ENV for the minor, LFO for the 7th, both for the m7
  *   PLAY           the rhythm on / off (with SYNC START: it waits for the first chord)
  *   REC            the chord sequence: on, and its page (there, with the rhythm stopped, a chord button
- *                  writes a step); again on its page: off. Held, the first eight chord buttons pick its track
+ *                  writes a step); again on its page: off. Held, the first eight chord buttons pick its track.
+ *                  On its page OCT- makes the step a melody (another each press), OCT+ copies the step's
+ *                  melody, or pastes it into a step without one; held, it takes the step's melody away
  *   ARP            CHORD HOLD          OCT- / OCT+   the plate's octave
  *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (HOME again: MELODY; GLO again: its
  *                         second and third page; EDIT steps through them all)
@@ -74,6 +76,8 @@ static struct {
     uint8_t seq_sel;                   /* the step the SEQUENCE page edits, and a chord button writes */
     uint8_t seq_n, seq_drv;            /* om_seq_n as last seen; the sequence was playing */
     uint8_t seq_on, seq_key, seq_trk;  /* what the engine was told last */
+    uint8_t mel_clip;                  /* a step's melody copied (OCT+ on the SEQUENCE page), 0 none */
+    uint32_t octup_t;                  /* when OCT+ went down: held long, it takes the melody away */
     uint32_t seq_look;                 /* until then the page shows the cursor's half, though another plays */
     uint8_t npads_down;
     uint8_t root, type, inv;           /* the chord (before transpose), and how it lies (INV_*) */
@@ -431,6 +435,45 @@ static void seq_write(int root, int type, int inv)
     mark_dirty();
 }
 
+/* the SEQUENCE page: a melody for the step at the cursor. OCT-: a new one (another seed; the melody switched
+ * on if it was off, so it is heard). OCT+: copies the step's, or pastes into a step without one; held: takes
+ * the step's away. Only on steps with a chord. It plays from the step's next turn */
+#define SQ_MEL (proj.seq_mel[proj.seq_trk])
+static void seq_melody(int what)            /* 0 new, 1 copy / paste, 2 take away */
+{
+    int i = ui.seq_sel;
+    uint8_t *m = &SQ_MEL[i % NSEQ];
+    if (i >= seq_len()) {
+        say("MELODY", "NO STEP");
+        return;
+    }
+    if (what == 0) {
+        uint32_t h = (plat_ms() + *m * 977u + (uint32_t)i * 131u) * 2654435761u;
+        uint8_t s = (uint8_t)(1u + (h >> 24) % 255u);
+        *m = s == *m ? (uint8_t)(s % 255u + 1u) : s;
+        if (!proj.mel) {
+            proj.mel = 80;
+            om_melody(OM_MEL_LEVEL, 80);
+        }
+        say("MELODY", "NEW");
+    } else if (what == 2) {
+        say("MELODY", *m ? "CLEARED" : "NONE HERE");
+        *m = 0;
+    } else if (*m) {
+        ui.mel_clip = *m;
+        say("MELODY", "COPIED");
+        return;
+    } else if (ui.mel_clip) {
+        *m = ui.mel_clip;
+        say("MELODY", "PASTED");
+    } else {
+        say("MELODY", "NONE COPIED");
+        return;
+    }
+    ui.seq_look = plat_ms() + 4000u;
+    mark_dirty();
+}
+
 /* REC held and one of the first eight chord buttons: that track. It plays when the one playing comes round */
 static void seq_track(int t)
 {
@@ -600,6 +643,10 @@ static void button(int b)
         mark_dirty();
         break;
     case B_OCTDN: case B_OCTUP:
+        if (ui.view == V_SEQ) {                  /* the sequence's page: the step's melody */
+            seq_melody(b == B_OCTDN ? 0 : 1);
+            break;
+        }
         knob_set(P_OCTAVE, proj.par[P_OCTAVE] + (b == B_OCTUP ? 1 : -1));
         {
             char t[8];
@@ -726,6 +773,8 @@ static void input(void)
             continue;
         if (btn & m) {
             ui.btn_used &= ~m;
+            if (i == B_OCTUP)
+                ui.octup_t = plat_ms();
             if (i == B_PLAY)                   /* transport on the press */
                 button((int)i);
         } else if (!(ui.btn_used & m) && i != B_PLAY && i != B_ENV && i != B_LFO) {
@@ -744,6 +793,11 @@ static void input(void)
             else
                 pad_up((int)i);
         }
+    if (ui.view == V_SEQ && (btn >> B_OCTUP & 1u) && !(ui.btn_used >> B_OCTUP & 1u) &&
+        plat_ms() - ui.octup_t >= 700u) {        /* OCT+ held there: the step's melody taken away */
+        ui.btn_used |= 1u << B_OCTUP;
+        seq_melody(2);
+    }
     if (btn || keys || ch)
         ui.act_t = plat_ms();
     midi_in();
@@ -968,6 +1022,11 @@ static void draw_seq(int32_t y0)
         itoa_u(SQ_BEATS(i), t);
         cv_text(x + 24 - text_w(&FONT_XS, t), y + 2, &FONT_XS, t, cur ? K_WHITE : K_DIM);
         inv_dots(x + 13, y + 27, (int)SQ_INV(i), cur ? K_WHITE : K_CHORD);
+        if (SQ_MEL[i]) {                          /* a melody: a note, bottom left */
+            uint16_t c = cur ? K_WHITE : K_HARP;
+            cv_round(x + 3, y + 24, 4, 4, 2, c);
+            cv_rect(x + 6, y + 19, 1, 7, c);
+        }
         text_c(x + 13, y + 15, &FONT_XS, OM_TYPE_NAME[SQ_TYPE(i)], cur ? K_WHITE : K_CHORD);
     }
 }
@@ -1006,7 +1065,7 @@ static void draw_main(void)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM] | ui.rhy_n << 8);
     if (ui.view == V_SEQ) {
         for (s = 0; s < NSEQ; s++)
-            h = hash(h, SQ[s][0] | SQ[s][1] << 8);
+            h = hash(h, SQ[s][0] | SQ[s][1] << 8 | (uint32_t)(SQ_MEL[s] != 0) << 16);
         h = hash(h, ui.seq_sel | (seq_plays() ? om_seq_at : 255u) << 8 | proj.seq_trk << 16 | om_seq_trk << 20 |
                         (uint32_t)seq_half() << 24);
     }

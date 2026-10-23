@@ -42,6 +42,8 @@ typedef struct {
     uint8_t seq[NTRK][NSEQ][2];
     uint8_t pad_inv[NSETS][NPADS];       /* how each button's chord lies: INV_* (a step: its beats' top bits) */
     uint8_t rhy[OM_NURHY][OM_RHY_BYTES]; /* the player's own rhythms (omni.h; the editor writes them) */
+    uint8_t seq_mel[NTRK][NSEQ];         /* each step's melody: its seed (omni.h om_seq_mel), 0 none. (Added
+                                          * last: a project from before it loads with none) */
 } project_t;
 
 extern project_t proj;

@@ -170,6 +170,7 @@ void project_apply(void)
     for (i = 0; i < OM_NURHY; i++)
         om_rhythm_user(i, proj.rhy[i]);
     om_seq_tab = proj.seq;
+    om_seq_mel = proj.seq_mel;
     om_seq(proj.seq_on, seq_key());
     om_seq_track(proj.seq_trk);
 }
