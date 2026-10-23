@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
-"""Make the Jambox FM-1 site for GitHub Pages (https://raydnoper.github.io/fm1-fomnium/):
+"""Make the Jambox FM-1 site for GitHub Pages (https://raydnoper.github.io/fm1-jambox/):
 
   index.html                    what Jambox FM-1 is, how it plays, and the ways in: try, install, download, source
   img/                          screenshots (docs/img)
@@ -29,7 +29,7 @@ SRC = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SRC / "web"))
 from make_site import product_of, strip_module  # noqa: E402  (Felucca's: the package format)
 
-REPO = "https://github.com/RayDNoper/fm1-fomnium"
+REPO = "https://github.com/RayDNoper/fm1-jambox"
 
 LANDING = """<!doctype html>
 <html lang="en">
