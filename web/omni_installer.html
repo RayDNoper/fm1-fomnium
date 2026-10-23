@@ -168,8 +168,7 @@ window.addEventListener("beforeunload", (e) => { if (writing) { e.preventDefault
 })();
 
 /* stock firmware: M-VAVE's FM-1 V15, chosen by the user (M-VAVE's server allows no cross-site
-   download) and checked against its SHA-256 before anything is written */
-const STOCK_SHA256 = "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a";
+   download) and checked against its SHA-256 (STOCK_SHA256, fm1ota.js, inlined above) before anything is written */
 let stock = null;
 $("stockfile").addEventListener("change", async (e) => {
   stock = null;
