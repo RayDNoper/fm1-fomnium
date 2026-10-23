@@ -44,7 +44,12 @@ typedef struct {
     uint8_t rhy[OM_NURHY][OM_RHY_BYTES]; /* the player's own rhythms (omni.h; the editor writes them) */
     uint8_t seq_mel[NTRK][NSEQ];         /* each step's melody: its seed (omni.h om_seq_mel), 0 none. (Added
                                           * last: a project from before it loads with none) */
+    /* (added after it, the same way) */
+    uint8_t mel_layer;                   /* recording a step's melody: 0 a time round replaces it, 1 adds to it */
+    uint8_t rsv2;
+    om_notes_t notes;                    /* the steps' melodies of the player's own (omni.h om_mel_notes) */
 } project_t;
+_Static_assert(sizeof(project_t) <= PLAT_STORE_MAX, "the project is one flash object");
 
 extern project_t proj;
 /* a DX7 bank's patches, as its SysEx holds them (omni.h): voices for the strings and the chord after those

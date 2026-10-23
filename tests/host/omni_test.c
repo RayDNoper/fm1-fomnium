@@ -433,6 +433,101 @@ int main(void)
         om_seq(0, 0);
         run(1);
     }
+    {   /* recording a step's melody: C F, four beats each, the second step recorded. A bar's count-in, then what
+         * the strings play is kept to the nearest sixteenth, a take each time round with notes; it plays back on
+         * the melody's channel, the step's own; a note just before the time round is its first; layering adds */
+        static uint8_t sq[OM_NTRK][OM_NSEQ][2];
+        static om_notes_t nt;
+        const double sl = 44100.0 * 60.0 / (116.0 * 4.0);   /* a sixteenth, in samples */
+        double t0 = 16.0 * sl;                    /* the first time round starts after the count-in's 16 */
+        long at = 0;
+        int i, n0, ok;
+        uint8_t played[OM_NSTR];
+        sq[0][0][0] = 0;
+        sq[0][0][1] = 4;
+        sq[0][1][0] = 5;
+        sq[0][1][1] = 4;
+        om_init();
+        om_seq_tab = sq;
+        om_mel_notes = &nt;
+        om_melody(OM_MEL_LEVEL, 80);
+        om_seq(1, 0);
+        om_mel_rec(1, 0, 1, 0);
+#define RUN_TO(x) do { while ((double)at < (x)) { run(1); at += 256; } } while (0)
+        RUN_TO(1.0);
+        check("recording: the rhythm starts, counting in", om_playing && om_rec == 1 && om_seq_at == 1);
+        mel_strings = 0;
+        RUN_TO(t0 + 0.2 * sl);                    /* places 0.2, 4.3 and 7.7 of the first time round: 0, 4, 8 */
+        check("recording: after a bar, recording", om_rec == 2);
+        om_strum(4);
+        RUN_TO(t0 + 4.3 * sl);
+        om_strum(7);
+        RUN_TO(t0 + 7.7 * sl);
+        om_strum(9);
+        n0 = om_rec_takes;
+        RUN_TO(t0 + 15.5 * sl);
+        mel_n = 0;
+        RUN_TO(t0 + 16.5 * sl);
+        check("recording: a time round with notes is a take", om_rec_takes == n0 + 1 && om_rec_n == 3);
+        check("recording: to the nearest sixteenth", om_rec_n == 3 && om_rec_ev[0][0] == 0 && om_rec_ev[1][0] == 4 &&
+                                                       om_rec_ev[2][0] == 8);
+        om_voicing(5, CH_MAJ, 0, 0, played, c, &bass);   /* (F's strings: 4, 7, 9) */
+        check("recording: the notes the strings played", om_rec_n == 3 && om_rec_ev[0][1] == played[4] &&
+                                                        om_rec_ev[1][1] == played[7] && om_rec_ev[2][1] == played[9]);
+        RUN_TO(t0 + 31.5 * sl);                   /* the second time round, nothing played: the take plays */
+        check("recording: the take plays back (channel 4)", mel_n == 3 && mel_got[0] == played[4] &&
+                                                             mel_got[1] == played[7] && mel_got[2] == played[9]);
+        check("recording: a time round without notes keeps the take", om_rec_takes == n0 + 1);
+        om_strum(2);                              /* in the second half of its last sixteenth: the next one's first */
+        RUN_TO(t0 + 33.0 * sl);
+        om_strum(12);                             /* replacing: the old notes make way */
+        mel_n = 0;
+        RUN_TO(t0 + 47.5 * sl);
+        check("recording: replacing, the old notes are silent once played", mel_n == 0);
+        RUN_TO(t0 + 48.5 * sl);
+        check("recording: a note just before the time round is its first", om_rec_takes == n0 + 2 && om_rec_n == 2 &&
+                                                                         om_rec_ev[0][0] == 0 &&
+                                                                         om_rec_ev[0][1] == played[2] &&
+                                                                         om_rec_ev[1][0] == 1);
+        om_mel_rec(0, 0, 0, 0);
+        run(1);
+        check("recording: stopped, and the rhythm it started", !om_rec && !om_playing);
+        /* the app keeps the take; the sequence then plays it on its step, and nothing on the other */
+        nt.n[0][1] = om_rec_n;
+        for (i = 0; i < om_rec_n; i++) {
+            nt.ev[i][0] = om_rec_ev[i][0];
+            nt.ev[i][1] = om_rec_ev[i][1];
+        }
+        om_rec_ack = om_rec_takes;
+        om_play(1);
+        mel_n = 0;
+        run_ms(2 * 2 * 4 * 60000 / 116 + 100);   /* twice round */
+        ok = mel_n == 4;
+        for (i = 0; i < mel_n; i++)
+            ok &= mel_at[i] == 1 && mel_got[i] == (i & 1 ? played[12] : played[2]);
+        check("recorded melody: plays on its step, the same each time", ok);
+        om_play(0);
+        run(1);
+        /* layering: a note at place 2 is added to the two there */
+        om_mel_rec(1, 0, 1, 1);
+        at = 0;
+        RUN_TO(t0 - 0.5 * sl);
+        mel_n = 0;
+        RUN_TO(t0 + 2.1 * sl);
+        check("recording, layering: the old notes still play", mel_n == 2);
+        om_strum(7);
+        RUN_TO(t0 + 16.5 * sl);
+        check("recording, layering: the new note added", om_rec_n == 3 && om_rec_ev[0][0] == 0 && om_rec_ev[1][0] == 1 &&
+                                                         om_rec_ev[2][0] == 2 && om_rec_ev[2][1] == played[7]);
+        om_play(0);                               /* PLAY stops recording too */
+        run(1);
+        check("recording: PLAY stops it", !om_rec && !om_playing);
+#undef RUN_TO
+        om_mel_notes = 0;
+        om_seq_tab = 0;
+        om_seq(0, 0);
+        run(1);
+    }
     printf("%s\n", bad ? "OMNI TEST FAILED" : "omni test passed");
     return bad != 0;
 }

@@ -59,6 +59,24 @@ void project_defaults(void)
     mel_defaults();
 }
 
+/* the steps' own melodies: no more notes than there is room for, each step's in order, one a place */
+static int notes_ok(void)
+{
+    int k, j, tot = 0;
+    for (k = 0; k < NTRK * NSEQ; k++) {
+        int n = proj.notes.n[k / NSEQ][k % NSEQ];
+        if (n > OM_MEL_STEP || tot + n > OM_MEL_NEV)
+            return 0;
+        for (j = 0; j < n; j++) {
+            const uint8_t *e = proj.notes.ev[tot + j];
+            if (e[0] >= OM_MEL_STEP || e[1] > 127u || (j && e[0] <= e[-2]))
+                return 0;
+        }
+        tot += n;
+    }
+    return 1;
+}
+
 static int project_valid(void)
 {
     int i, s;
@@ -94,6 +112,10 @@ static int project_valid(void)
     }
     if (!proj.mel_seed || proj.mel > 100u || proj.mel_den > 100u || proj.mel_seed > 99u || proj.mel_rep > 100u)
         mel_defaults();                          /* from before the melody (its bytes were zeros) */
+    if (proj.mel_layer > 1u)
+        proj.mel_layer = 0;
+    if (!notes_ok())                             /* (the steps' own melodies only: the rest is fine) */
+        memset(&proj.notes, 0, sizeof proj.notes);
     proj.format = PROJ_FORMAT;
     for (i = 0; i < P_NPARAMS; i++) {
         const om_param_t *p = om_param_info(i);
@@ -171,6 +193,7 @@ void project_apply(void)
         om_rhythm_user(i, proj.rhy[i]);
     om_seq_tab = proj.seq;
     om_seq_mel = proj.seq_mel;
+    om_mel_notes = &proj.notes;
     om_seq(proj.seq_on, seq_key());
     om_seq_track(proj.seq_trk);
 }

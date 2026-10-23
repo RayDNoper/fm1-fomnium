@@ -110,6 +110,30 @@ extern const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
  * makes that step's tune over its chord, the same each time round; 0 none. A track with any plays them, and
  * rests on its other steps; one with none has the melody as ever (om_melody: its level for both) */
 extern const uint8_t (*volatile om_seq_mel)[OM_NSEQ];
+/* or the player's own, recorded (om_mel_rec): a step's notes, each at a step of the rhythm from the step's start
+ * (0..127) and its note (MIDI, less the chord set's key and Transpose, so it moves with them). The app's table:
+ * n, each step's count (up to OM_MEL_STEP), and the notes one step after another (track by track, step by step),
+ * each step's in order. A step with notes plays them (its seed aside). While the app changes it, om_mel_busy */
+#define OM_MEL_NEV 896
+#define OM_MEL_STEP 128
+typedef struct {
+    uint8_t n[OM_NTRK][OM_NSEQ];
+    uint8_t ev[OM_MEL_NEV][2];
+} om_notes_t;
+extern const om_notes_t *volatile om_mel_notes;
+extern volatile uint8_t om_mel_busy;
+/* recording a step's melody: the rhythm plays (it starts, if it was stopped), a bar to count in on the step's
+ * chord, then the step round and round; what the strings play is its melody, to the nearest step of the rhythm,
+ * one note at a time. layer 0: a time round with notes replaces the melody (the old one heard until the first
+ * new note), 1: adds to it. Each time round with notes is a take: om_rec_takes counts them, and the step's
+ * notes are then om_rec_ev (om_rec_n), for the app to keep (om_rec_ack: the count it has kept). Off: the time
+ * round so far is a take too, if it has notes; the rhythm stops if recording started it. PLAY stops both */
+void om_mel_rec(int on, int track, int step, int layer);
+extern volatile uint8_t om_rec;                /* 0 not recording, 1 the count-in, 2 recording */
+extern volatile uint8_t om_rec_takes, om_rec_ack, om_rec_n, om_rec_trk, om_rec_step;
+extern const uint8_t (*const om_rec_ev)[2];
+extern volatile uint8_t om_rec_pos, om_rec_len, om_rec_beat;   /* how far into the count-in or the time round:
+                                                                * steps of the rhythm begun, of so many; a beat's */
 void om_seq(int on, int key);
 void om_seq_track(int t);
 /* the melody: while the rhythm runs and a chord sounds, a tune of its own over the chords, on the strings'

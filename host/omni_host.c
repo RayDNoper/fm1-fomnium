@@ -396,6 +396,15 @@ static int expect(const char *what, const char *val)
         got = SQ_BEATS(atoi(what + 8) % NSEQ);
     else if (!strncmp(what, "seqmel", 6))         /* step N's melody (its seed, 0 none) */
         got = proj.seq_mel[proj.seq_trk][atoi(what + 6) % NSEQ];
+    else if (!strncmp(what, "seqnotes", 8))       /* step N's own melody: its notes (0 none) */
+        got = proj.notes.n[proj.seq_trk][atoi(what + 8) % NSEQ];
+    else if (!strncmp(what, "seqnote", 7)) {      /* seqnoteN.K: its Kth note's place (a step of the rhythm) */
+        int i = atoi(what + 7) % NSEQ, k = strchr(what, '.') ? atoi(strchr(what, '.') + 1) : 0;
+        got = k < proj.notes.n[proj.seq_trk][i] ? proj.notes.ev[notes_at(proj.seq_trk, i) + k][0] : -1;
+    } else if (!strcmp(what, "rec"))              /* recording a step's melody: 1 counting in, 2 recording */
+        got = om_rec;
+    else if (!strcmp(what, "mellayer"))
+        got = proj.mel_layer;
     else if (!strncmp(what, "seqinv", 6))         /* how step N's chord lies, a button's, the chord's now */
         got = SQ_INV(atoi(what + 6) % NSEQ);
     else if (!strncmp(what, "padinv", 6))

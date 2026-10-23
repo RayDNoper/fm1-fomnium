@@ -201,7 +201,7 @@ void om_voicing_inv(int root, int type, int inv, int transpose, int octave, uint
 
 /* ------------------------------------------------------------ commands --- */
 enum { C_SET, C_CHORD, C_GATE, C_STRUM, C_PLAY, C_PANIC, C_CLOCK, C_PLATE, C_VOICE, C_CVOICE, C_SEQ, C_SEQTRK, C_BASS,
-       C_MEL };
+       C_MEL, C_MELREC };
 #define QN 64u
 static uint32_t q[QN];
 static volatile uint32_t q_w, q_r;
@@ -224,6 +224,7 @@ void om_seq(int on, int key) { post(C_SEQ, on, key); }
 void om_seq_track(int t) { post(C_SEQTRK, t, 0); }
 void om_bass(int level) { post(C_BASS, level, 0); }
 void om_melody(int what, int value) { post(C_MEL, what, value); }
+void om_mel_rec(int on, int t, int i, int layer) { post(C_MELREC, on ? 1 + (i & 31) : 0, (t & 7) | (layer != 0) << 8); }
 void om_gate(int on) { post(C_GATE, on, 0); }
 void om_strum(int s) { post(C_STRUM, s, 0); }
 void om_play(int on) { post(C_PLAY, on, 0); }
@@ -242,6 +243,10 @@ volatile uint8_t om_ext;
 volatile uint8_t om_seq_trk, om_seq_at, om_seq_n;
 const uint8_t (*volatile om_seq_tab)[OM_NSEQ][2];
 const uint8_t (*volatile om_seq_mel)[OM_NSEQ];
+const om_notes_t *volatile om_mel_notes;
+volatile uint8_t om_mel_busy;
+volatile uint8_t om_rec, om_rec_takes, om_rec_ack, om_rec_n, om_rec_trk, om_rec_step;
+volatile uint8_t om_rec_pos, om_rec_len, om_rec_beat;
 
 static int16_t par[P_NPARAMS];
 static float tunefac = 1.0f, v1, v2, cvol, rvol, rsend, csend, sus_rate, bvol = 1.0f;
@@ -495,6 +500,17 @@ static const uint8_t GM_DRUM[OM_NDRUM] = {36, 75, 42, 51, 38};   /* BD, claves, 
 
 static void tempo_set(void) { step_len = OM_SR * 60.0f / ((float)par[P_TEMPO] * 4.0f); }
 
+/* a bar of the rhythm: its beats (the rhythms are mostly two bars), up to 6 */
+static int bar_beats(const om_rhythm_t *r)
+{
+    int b = r->beat < 1 ? 4 : r->beat > 8 ? 8 : r->beat, nb = r->len / b;
+    if (nb < 2)
+        nb = 4;
+    while (nb > 4 && !(nb & 1))
+        nb /= 2;
+    return nb > 6 ? 4 : nb;
+}
+
 /* ---- the chord sequence: a track's chords in turn, each for its beats, while the rhythm runs */
 static uint8_t seq_on, seq_key, seq_left;       /* seq_left: beats the chord has yet to play */
 static uint8_t seq_trk, seq_next;               /* the track playing, and the one to follow it */
@@ -508,13 +524,53 @@ static int seq_beats(int t, int i)              /* (the table is the app's: what
 }
 static int seq_drives(void) { return seq_on && om_playing && seq_beats(seq_trk, 0); }
 
+/* recording a step's melody (om_mel_rec): the step (rec_i of the track playing) round and round */
+static uint8_t rec_i, rec_go, rec_layer, rec_play;   /* rec_go: the count-in from the next beat; rec_play: recording
+                                                      * started the rhythm */
+static uint16_t sq_pos;                         /* steps of the rhythm since the sequence's step began */
+
 static void mel_seq_step(int i);
+static void rec_pass(void);
+static void rec_end(int stop);
+
+static void seq_chord(int i)                    /* step i's chord sounds */
+{
+    int c = om_seq_tab[seq_trk][i][0];
+    seq_i = (int8_t)i;
+    root = ((c & 15) + seq_key) % 12;
+    type = (c >> 4) < CH_NTYPES ? c >> 4 : 0;
+    inv = om_seq_tab[seq_trk][i][1] >> 6;
+    retune();
+    gate = 1;
+    if (!par[P_ABC]) {                           /* no auto bass: the chord is held, as from a button */
+        chord_cmd('T');
+        bass_kind = 0;
+        bass_cmd('T', 'R');
+    }
+    om_seq_at = (uint8_t)i;
+    om_seq_n++;
+    sq_pos = 0;
+}
 
 static void seq_beat(void)
 {
-    if (!seq_left) {
-        int i = seq_i + 1, c;
-        if (!seq_beats(seq_trk, i)) {            /* round again, or on to the track that waits */
+    if (om_rec && !seq_beats(seq_trk, rec_i))   /* (the step is gone) */
+        rec_end(1);
+    if (rec_go) {                                /* recording: a bar's count-in, on the step's chord */
+        const om_rhythm_t *r = om_rhythm(rh);
+        rec_go = 0;
+        om_rec = 1;
+        seq_chord(rec_i);
+        mel_seq_step(rec_i);
+        seq_left = (uint8_t)bar_beats(r);
+        om_rec_len = (uint8_t)(seq_left * r->beat);
+        om_rec_beat = r->beat;
+    } else if (!seq_left) {
+        int i = seq_i + 1;
+        if (om_rec) {                            /* the step again: a time round ends, another begins */
+            i = rec_i;
+            rec_pass();
+        } else if (!seq_beats(seq_trk, i)) {     /* round again, or on to the track that waits */
             i = 0;
             seq_trk = seq_next;
             om_seq_trk = seq_trk;
@@ -523,21 +579,13 @@ static void seq_beat(void)
                 return;
             }
         }
-        c = om_seq_tab[seq_trk][i][0];
-        seq_i = (int8_t)i;
+        seq_chord(i);
         seq_left = (uint8_t)seq_beats(seq_trk, i);
-        root = ((c & 15) + seq_key) % 12;
-        type = (c >> 4) < CH_NTYPES ? c >> 4 : 0;
-        inv = om_seq_tab[seq_trk][i][1] >> 6;
-        retune();
-        gate = 1;
-        if (!par[P_ABC]) {                       /* no auto bass: the chord is held, as from a button */
-            chord_cmd('T');
-            bass_kind = 0;
-            bass_cmd('T', 'R');
+        if (om_rec) {
+            const om_rhythm_t *r = om_rhythm(rh);
+            om_rec_len = (uint8_t)(seq_left * r->beat > 255 ? 255 : seq_left * r->beat);
+            om_rec_beat = r->beat;
         }
-        om_seq_at = (uint8_t)i;
-        om_seq_n++;
         mel_seq_step(i);
     }
     seq_left--;
@@ -737,16 +785,54 @@ static void mel_start(void)                     /* PLAY: from the seed, a new ph
     mot_n = 0;
 }
 
-/* a step of the sequence begins (i): if its track holds melodies, this step's, made anew from its seed over its
- * chord, a phrase of its own (so it is the same each time round, wherever the track was before it) */
+/* the step's own notes (om_mel_notes), as the render keeps them while the step plays; and, recording, the time
+ * round's (rec_ev), in order of their places */
+static uint8_t mel_ev[OM_MEL_STEP][2], rec_ev[OM_MEL_STEP][2];
+const uint8_t (*const om_rec_ev)[2] = (const uint8_t (*)[2])mel_ev;
+static uint8_t mel_evn, mel_ei, mel_due;        /* how many, the next to play; to be read (the app was changing them) */
+static uint8_t rec_n, rec_mute, rec_early;      /* replacing: the old notes make way; a note played just before the
+                                                 * time round, for its start (+1) */
+
+static void mel_load(void)                      /* the playing step's notes, from the app's table */
+{
+    const om_notes_t *t = om_mel_notes;
+    int k, off = 0, n;
+    mel_ei = 0;
+    mel_due = 0;
+    if (om_rec == 2 || (om_rec_ack != om_rec_takes && seq_trk == om_rec_trk && seq_i == om_rec_step))
+        return;                                   /* recording, or a take the app has yet to keep: its own */
+    mel_evn = 0;
+    if (!t || seq_i < 0)
+        return;
+    if (om_mel_busy) {                            /* (at the next step of the rhythm) */
+        mel_due = 1;
+        return;
+    }
+    for (k = 0; k < seq_trk * OM_NSEQ + seq_i; k++)
+        off += t->n[k / OM_NSEQ][k % OM_NSEQ];
+    n = t->n[seq_trk][seq_i];
+    if (n > OM_MEL_STEP || off + n > OM_MEL_NEV)
+        return;
+    for (k = 0; k < n; k++) {
+        mel_ev[k][0] = t->ev[off + k][0];
+        mel_ev[k][1] = t->ev[off + k][1];
+    }
+    mel_evn = (uint8_t)n;
+}
+
+/* a step of the sequence begins (i): if its track holds melodies, this step's: its own notes, or one made anew
+ * from its seed over its chord, a phrase of its own (so it is the same each time round, wherever the track was
+ * before it) */
 static void mel_seq_step(int i)
 {
     const uint8_t (*m)[OM_NSEQ] = om_seq_mel;
+    const om_notes_t *t = om_mel_notes;
     int k;
-    mel_trk = 0;
-    for (k = 0; m && k < OM_NSEQ && seq_beats(seq_trk, k); k++)
-        mel_trk |= m[seq_trk][k] != 0;
-    mel_sd = m ? m[seq_trk][i] : 0;
+    mel_trk = om_rec != 0;
+    for (k = 0; k < OM_NSEQ && seq_beats(seq_trk, k); k++)
+        mel_trk |= (m && m[seq_trk][k]) || (t && t->n[seq_trk][k]);
+    mel_sd = m && !om_rec ? m[seq_trk][i] : 0;
+    mel_load();
     if (!mel_trk)
         return;
     mel_rng = 0x6C8E9CF5u * (mel_sd + 1u) ^ 0x2545F491u;
@@ -758,19 +844,139 @@ static void mel_seq_step(int i)
     mot_n = 0;
 }
 
+/* a step's own notes, as they fall (not in the count-in; replacing, not once a new note is played) */
+static void mel_notes(void)
+{
+    if (mel_due && !om_mel_busy)
+        mel_load();
+    while (mel_ei < mel_evn && mel_ev[mel_ei][0] < sq_pos)
+        mel_ei++;
+    if (om_rec == 1 || mel_ei >= mel_evn || mel_ev[mel_ei][0] != sq_pos)
+        return;
+    if (mel_lvl && !rec_mute) {
+        int n = mel_ev[mel_ei][1] + seq_key + par[P_TRANSPOSE];
+        n = n < 0 ? 0 : n > 127 ? 127 : n;
+        pluck(MEL, n);
+        om_mel_note = (uint8_t)n;
+    }
+    mel_ei++;
+}
+
+/* recording: a note at place p of the time round (one a place: the last played) */
+static void rec_add(int p, int v)
+{
+    int j, k;
+    if (p < 0 || p >= OM_MEL_STEP)
+        return;
+    for (j = 0; j < rec_n && rec_ev[j][0] < p; j++)
+        ;
+    if (j >= rec_n || rec_ev[j][0] != p) {
+        if (rec_n >= OM_MEL_STEP)
+            return;
+        for (k = rec_n; k > j; k--) {
+            rec_ev[k][0] = rec_ev[k - 1][0];
+            rec_ev[k][1] = rec_ev[k - 1][1];
+        }
+        rec_n++;
+        rec_ev[j][0] = (uint8_t)p;
+    }
+    rec_ev[j][1] = (uint8_t)v;
+    if (!rec_layer && !rec_mute) {               /* replacing: the old melody makes way */
+        rec_mute = 1;
+        mel_let_go();
+    }
+}
+
+/* a string plucked while recording (its note n): to the nearest step of the rhythm. One in the second half of
+ * the last step before the time round (or the count-in's last) is the time round's first */
+static void rec_strum(int n)
+{
+    const om_rhythm_t *r = om_rhythm(rh);
+    float left = om_ext ? 0.5f : pulse_left / (step_len * (1.0f / 6.0f)),
+          f = ((float)(pulse ? pulse : 6) - fm_clampf(left, 0.0f, 1.0f)) * (1.0f / 6.0f);
+    int v = n - seq_key - par[P_TRANSPOSE], up = f >= 0.5f;
+    v = v < 0 ? 0 : v > 127 ? 127 : v;
+    if (!om_playing || !om_rec)
+        return;
+    if (up && !seq_left && r->beat && step % r->beat == 0) {
+        rec_early = (uint8_t)(v + 1);
+        return;
+    }
+    if (om_rec == 2)
+        rec_add(sq_pos - 1 + up, v);
+}
+
+/* a take: the time round's notes become the step's (layering: are added to them, a new note in an old one's
+ * place for it), and the app hears of it */
+static void rec_take(void)
+{
+    static uint8_t out[OM_MEL_STEP][2];
+    int a = 0, b = 0, n = 0;
+    while (b < rec_n || (rec_layer && a < mel_evn)) {
+        if (b >= rec_n || (a < mel_evn && rec_layer && mel_ev[a][0] < rec_ev[b][0])) {
+            out[n][0] = mel_ev[a][0];
+            out[n++][1] = mel_ev[a++][1];
+        } else {
+            while (a < mel_evn && mel_ev[a][0] <= rec_ev[b][0])
+                a++;
+            out[n][0] = rec_ev[b][0];
+            out[n++][1] = rec_ev[b++][1];
+        }
+    }
+    for (a = 0; a < n; a++) {
+        mel_ev[a][0] = out[a][0];
+        mel_ev[a][1] = out[a][1];
+    }
+    mel_evn = (uint8_t)n;
+    mel_ei = 0;
+    om_rec_n = (uint8_t)n;
+    om_rec_trk = seq_trk;
+    om_rec_step = rec_i;
+    BARRIER();
+    om_rec_takes++;
+}
+
+static void rec_pass(void)                      /* a time round begins (the last one's notes: a take) */
+{
+    if (om_rec == 2 && rec_n)
+        rec_take();
+    om_rec = 2;
+    rec_n = 0;
+    rec_mute = 0;
+    if (rec_early) {
+        rec_add(0, rec_early - 1);
+        rec_early = 0;
+    }
+}
+
+static void play_stop(void);
+static void rec_end(int stop)                   /* stop: and the rhythm, if recording started it */
+{
+    if (!om_rec)
+        return;
+    if (om_rec == 2 && rec_n)
+        rec_take();
+    om_rec = 0;
+    rec_go = 0;
+    rec_n = 0;
+    rec_mute = 0;
+    rec_early = 0;
+    if (stop && rec_play && om_playing)
+        play_stop();
+    rec_play = 0;
+}
+
 /* a step of the rhythm (r): the melody's, as it falls in its bar */
 static void mel_step(const om_rhythm_t *r)
 {
     int k, sb, beat, weight, sq = mel_trk && seq_drives(), live = mel_lvl && (sq ? mel_sd : gate || seq_drives());
+    if (sq && (mel_evn || mel_due || om_rec)) {   /* the step's own notes */
+        mel_notes();
+        return;
+    }
     if (mel_pos == 0) {                           /* a bar: its beats as the rhythm has them, up to 6 */
         mel_b = r->beat < 1 ? 4 : r->beat > 8 ? 8 : r->beat;
-        mel_nb = r->len / mel_b;
-        if (mel_nb < 2)
-            mel_nb = 4;
-        while (mel_nb > 4 && !(mel_nb & 1))
-            mel_nb /= 2;
-        if (mel_nb > 6)
-            mel_nb = 4;
+        mel_nb = bar_beats(r);
         mel_bar = (mel_bar + 1) & 3;
         if (mel_bar == 0 && (!mot_n || !mel_dice(mel_rep)))
             mot_n = 0;                            /* a new figure (Repeat: the odds of keeping it) */
@@ -858,6 +1064,8 @@ static void do_step(void)
             chord_cmd(r->chord[step]);
     }
     mel_step(r);
+    sq_pos++;
+    om_rec_pos = (uint8_t)(sq_pos > 255 ? 255 : sq_pos);
     om_step = (uint8_t)step;
     if (++step >= r->len) {
         step = 0;
@@ -1081,6 +1289,7 @@ static void play_start(int from_top)
 
 static void play_stop(void)
 {
+    rec_end(0);
     om_playing = 0;
     mel_let_go();
     if (!om_ext)
@@ -1150,6 +1359,27 @@ static void drain(void)
                 mel_rep = (uint8_t)b;
             }
             break;
+        case C_MELREC:                            /* a, the step + 1 (0: stop); b, the track | layer << 8 */
+            if (!a) {
+                rec_end(1);
+                break;
+            }
+            rec_end(0);
+            if (!om_playing) {
+                play_start(1);
+                rec_play = 1;
+            }
+            seq_trk = seq_next = (uint8_t)(b & 7);
+            om_seq_trk = seq_trk;
+            rec_i = (uint8_t)(a - 1);
+            rec_layer = (uint8_t)(b >> 8 & 1);
+            rec_go = 1;
+            om_rec = 1;                           /* (the count-in from the next beat) */
+            om_rec_pos = om_rec_len = 0;
+            mel_trk = 1;
+            mel_evn = 0;
+            mel_let_go();
+            break;
         case C_SEQTRK:                            /* when the one playing comes round; none does: now */
             seq_next = (uint8_t)(a < OM_NTRK ? a : 0);
             if (!seq_drives()) {
@@ -1181,8 +1411,10 @@ static void drain(void)
             }
             break;
         case C_STRUM:
-            if (a < OM_NSTR)
+            if (a < OM_NSTR) {
                 strum(a);
+                rec_strum(harp_n[a]);
+            }
             break;
         case C_PLAY:
             if (a && !om_playing)

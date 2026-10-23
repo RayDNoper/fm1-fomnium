@@ -8,7 +8,8 @@
  *   REC            the chord sequence: on, and its page (there, with the rhythm stopped, a chord button
  *                  writes a step); again on its page: off. Held, the first eight chord buttons pick its track.
  *                  On its page OCT- makes the step a melody (another each press), OCT+ copies the step's
- *                  melody, or pastes it into a step without one; held, it takes the step's melody away
+ *                  melody, or pastes it into a step without one; held, it takes the step's melody away.
+ *                  OCT- held records the step's melody from the strings (OCT- again: stop)
  *   ARP            CHORD HOLD          OCT- / OCT+   the plate's octave
  *   HOME SEQ FX SEL GLO   the pages: PLAY, RHYTHM, SOUND, CHORDS, SETUP (HOME again: MELODY; GLO again: its
  *                         second and third page; EDIT steps through them all)
@@ -20,7 +21,8 @@ static const char *const VIEW_NAME[NVIEWS] = {"Play", "Rhythm", "Sound", "Chords
                                               "Sequence", "Melody"};
 /* the four knobs of each page: a parameter, or one of these */
 enum { K_PADROOT = 100, K_PADTYPE, K_LEDS, K_PLATE, K_DARK, K_VOICE, K_CVOICE, K_SHIFT, K_SYNC,
-       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_LOAD, K_MEL, K_MDEN, K_MSEED, K_MREP, K_NONE };
+       K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS, K_PADINV, K_BASS, K_LOAD, K_MEL, K_MDEN, K_MSEED, K_MREP, K_MRECM,
+       K_NONE };
 static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {P_VOICE1, P_VOICE2, P_SUSTAIN, P_CHORD},
     {P_RHYTHM, P_TEMPO, P_RHYVOL, P_ABC},
@@ -28,7 +30,7 @@ static const uint8_t VIEW_KNOB[NVIEWS][4] = {
     {K_PADROOT, K_PADTYPE, P_TRANSPOSE, K_PADINV},
     {K_PLATE, K_SHIFT, P_TUNE, P_MIDI},
     {K_LEDS, K_DARK, K_VOICE, K_CVOICE},
-    {K_SYNC, K_BASS, K_NONE, K_LOAD},
+    {K_SYNC, K_BASS, K_MRECM, K_LOAD},
     {K_SQSTEP, K_SQROOT, K_SQTYPE, K_SQBEATS},
     {K_MEL, K_MDEN, K_MSEED, K_MREP},
 };
@@ -76,8 +78,11 @@ static struct {
     uint8_t seq_sel;                   /* the step the SEQUENCE page edits, and a chord button writes */
     uint8_t seq_n, seq_drv;            /* om_seq_n as last seen; the sequence was playing */
     uint8_t seq_on, seq_key, seq_trk;  /* what the engine was told last */
-    uint8_t mel_clip;                  /* a step's melody copied (OCT+ on the SEQUENCE page), 0 none */
-    uint32_t octup_t;                  /* when OCT+ went down: held long, it takes the melody away */
+    uint8_t mel_clip;                  /* a step's melody copied (OCT+ on the SEQUENCE page): its seed, */
+    uint8_t clip_n;                    /* or its notes (clip_n of them); neither: none */
+    uint8_t clip_ev[OM_MEL_STEP][2];
+    uint32_t octup_t, octdn_t;         /* when OCT+ went down: held long, it takes the melody away; OCT-: records */
+    uint8_t rec_was;                   /* om_rec as last seen */
     uint32_t seq_look;                 /* until then the page shows the cursor's half, though another plays */
     uint8_t npads_down;
     uint8_t root, type, inv;           /* the chord (before transpose), and how it lies (INV_*) */
@@ -175,6 +180,8 @@ static int knob_get(int k)
         return proj.mel_seed;
     if (k == K_MREP)
         return proj.mel_rep;
+    if (k == K_MRECM)
+        return proj.mel_layer;
     if (k == K_SQSTEP)
         return ui.seq_sel;
     if (k == K_SQROOT)                           /* as it sounds in this chord set's key */
@@ -225,7 +232,7 @@ static void knob_range(int k, int *lo, int *hi)
         *hi = seq_len() < NSEQ ? seq_len() : NSEQ - 1;
     } else {
         *lo = 0;
-        *hi = k == K_BASS || k == K_LOAD || k == K_MEL || k == K_MDEN || k == K_MREP ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
+        *hi = k == K_BASS || k == K_LOAD || k == K_MEL || k == K_MDEN || k == K_MREP ? 100 : k == K_PADINV ? INV_N - 1 : k == K_SYNC || k == K_MRECM ? 1 : k == K_SQROOT ? 11 : k == K_SQTYPE ? CH_NTYPES - 1 : k == K_SQBEATS ? OM_SEQ_BEATS :
               k == K_PADROOT ? 11 : k == K_PADTYPE ? CH_NTYPES - 1 : k == K_LEDS ? 2 : k == K_PLATE ? PL_NMODES - 1 : k == K_DARK ? 1 : k == K_VOICE ? OM_NVOICES - 1 :
               k == K_CVOICE ? OM_NCVOICES - 1 : 0;
     }
@@ -239,7 +246,7 @@ static const char *knob_name(int k)
            k == K_SHIFT ? "Shift" : k == K_SYNC ? "Sync start" : k == K_SQSTEP ? "Step" : k == K_SQROOT ? "Root" :
            k == K_SQTYPE ? "Type" : k == K_SQBEATS ? "Beats" : k == K_PADINV ? "Invert" : k == K_BASS ? "Bass" :
            k == K_LOAD ? "Load" : k == K_MEL ? "Melody" : k == K_MDEN ? "Density" : k == K_MSEED ? "Seed" :
-           k == K_MREP ? "Repeat" : "";
+           k == K_MREP ? "Repeat" : k == K_MRECM ? "Mel rec" : "";
 }
 static void knob_text(int k, char *b)
 {
@@ -298,6 +305,10 @@ static void knob_text(int k, char *b)
         b[1] = 0;
     } else if (k == K_DARK || k == K_SYNC || k == K_MEL) {
         const char *n = v ? "On" : "Off";
+        while ((*b++ = *n++))
+            ;
+    } else if (k == K_MRECM) {                   /* recording a step's melody: each time round replaces it, or adds */
+        const char *n = v ? "Layer" : "Replace";
         while ((*b++ = *n++))
             ;
     } else if (k == K_PLATE) {                   /* the chord's tones (folded, the OM's plate; or straight up), */
@@ -376,6 +387,8 @@ static void knob_set(int k, int v)
         uint8_t *m = k == K_MEL ? &proj.mel : k == K_MDEN ? &proj.mel_den : k == K_MSEED ? &proj.mel_seed : &proj.mel_rep;
         *m = (uint8_t)v;
         om_melody(k - K_MEL, v);
+    } else if (k == K_MRECM) {
+        proj.mel_layer = (uint8_t)v;
     } else if (k == K_SYNC) {                    /* SYNC START: PLAY waits for the first chord */
         proj.sync = (uint8_t)v;
         if (!v)
@@ -435,14 +448,52 @@ static void seq_write(int root, int type, int inv)
     mark_dirty();
 }
 
+/* the steps' own melodies (proj.notes, omni.h om_notes_t): where a step's notes begin, how many there are in
+ * all, and a step's put in place of what it had (0: no room). The render reads them as a step begins: while
+ * they change, om_mel_busy */
+#define SQ_MEL (proj.seq_mel[proj.seq_trk])
+#define SQ_NOTES(i) (proj.notes.n[proj.seq_trk][i])
+#define SQ_HAS_MEL(i) (SQ_MEL[i] || SQ_NOTES(i))
+static int notes_at(int t, int i)
+{
+    int k, off = 0;
+    for (k = 0; k < t * NSEQ + i; k++)
+        off += proj.notes.n[k / NSEQ][k % NSEQ];
+    return off;
+}
+static int notes_put(int t, int i, const uint8_t (*ev)[2], int n)
+{
+    om_notes_t *p = &proj.notes;
+    uint8_t *e = p->ev[0];
+    int off = notes_at(t, i), old = p->n[t][i], tot = notes_at(NTRK - 1, NSEQ - 1) + p->n[NTRK - 1][NSEQ - 1], k;
+    if (tot - old + n > OM_MEL_NEV)
+        return 0;
+    om_mel_busy = 1;
+    __asm__ volatile("" ::: "memory");
+    if (n < old)                                 /* the steps after it move along (freestanding: no memmove) */
+        for (k = 2 * (off + old); k < 2 * tot; k++)
+            e[k - 2 * (old - n)] = e[k];
+    else
+        for (k = 2 * tot - 1; k >= 2 * (off + old); k--)
+            e[k + 2 * (n - old)] = e[k];
+    for (k = 0; k < n; k++) {
+        p->ev[off + k][0] = ev[k][0];
+        p->ev[off + k][1] = ev[k][1];
+    }
+    p->n[t][i] = (uint8_t)n;
+    __asm__ volatile("" ::: "memory");
+    om_mel_busy = 0;
+    return 1;
+}
+
 /* the SEQUENCE page: a melody for the step at the cursor. OCT-: a new one (another seed; the melody switched
  * on if it was off, so it is heard). OCT+: copies the step's, or pastes into a step without one; held: takes
- * the step's away. Only on steps with a chord. It plays from the step's next turn */
-#define SQ_MEL (proj.seq_mel[proj.seq_trk])
+ * the step's away. Only on steps with a chord. It plays from the step's next turn. A melody of the player's
+ * own (recorded) goes the same ways */
 static void seq_melody(int what)            /* 0 new, 1 copy / paste, 2 take away */
 {
-    int i = ui.seq_sel;
-    uint8_t *m = &SQ_MEL[i % NSEQ];
+    int i = ui.seq_sel % NSEQ;
+    uint8_t *m = &SQ_MEL[i];
     if (i >= seq_len()) {
         say("MELODY", "NO STEP");
         return;
@@ -451,18 +502,29 @@ static void seq_melody(int what)            /* 0 new, 1 copy / paste, 2 take awa
         uint32_t h = (plat_ms() + *m * 977u + (uint32_t)i * 131u) * 2654435761u;
         uint8_t s = (uint8_t)(1u + (h >> 24) % 255u);
         *m = s == *m ? (uint8_t)(s % 255u + 1u) : s;
+        notes_put(proj.seq_trk, i, 0, 0);
         if (!proj.mel) {
             proj.mel = 80;
             om_melody(OM_MEL_LEVEL, 80);
         }
         say("MELODY", "NEW");
     } else if (what == 2) {
-        say("MELODY", *m ? "CLEARED" : "NONE HERE");
+        say("MELODY", SQ_HAS_MEL(i) ? "CLEARED" : "NONE HERE");
         *m = 0;
-    } else if (*m) {
+        notes_put(proj.seq_trk, i, 0, 0);
+    } else if (SQ_HAS_MEL(i)) {
         ui.mel_clip = *m;
+        ui.clip_n = SQ_NOTES(i);
+        if (ui.clip_n)
+            memcpy(ui.clip_ev, proj.notes.ev[notes_at(proj.seq_trk, i)], ui.clip_n * 2u);
         say("MELODY", "COPIED");
         return;
+    } else if (ui.clip_n) {
+        if (!notes_put(proj.seq_trk, i, (const uint8_t (*)[2])ui.clip_ev, ui.clip_n)) {
+            say("MELODY", "NO ROOM");
+            return;
+        }
+        say("MELODY", "PASTED");
     } else if (ui.mel_clip) {
         *m = ui.mel_clip;
         say("MELODY", "PASTED");
@@ -472,6 +534,62 @@ static void seq_melody(int what)            /* 0 new, 1 copy / paste, 2 take awa
     }
     ui.seq_look = plat_ms() + 4000u;
     mark_dirty();
+}
+
+static void seq_follow(void);
+static uint8_t rec_trk_ui, rec_step_ui;         /* the track and step recording */
+static int om_rec_step_ui(void) { return om_rec && rec_trk_ui == proj.seq_trk ? rec_step_ui : -1; }
+/* OCT- held on the SEQUENCE page: the step at the cursor's melody recorded from the strings (omni.h om_mel_rec);
+ * OCT- again stops. The sequence and the melody are switched on if they were off */
+static void seq_record(int on)
+{
+    int i = ui.seq_sel % NSEQ;
+    if (!on) {
+        om_mel_rec(0, 0, 0, 0);
+        return;
+    }
+    if (i >= seq_len()) {
+        say("MELODY", "NO STEP");
+        return;
+    }
+    if (!proj.seq_on) {
+        proj.seq_on = 1;
+        seq_follow();
+    }
+    if (!proj.mel) {
+        proj.mel = 80;
+        om_melody(OM_MEL_LEVEL, 80);
+    }
+    ui.armed = 0;
+    om_mel_rec(1, proj.seq_trk, i, proj.mel_layer);
+    rec_trk_ui = proj.seq_trk;
+    rec_step_ui = (uint8_t)i;
+    ui.rec_was = 2;
+    ui.msg_until = 0;                            /* (the header shows the count-in) */
+    mark_dirty();
+}
+
+/* each take the render makes, kept in the project */
+static void rec_follow(void)
+{
+    uint8_t n = om_rec_takes;
+    if (n != om_rec_ack) {
+        int t = om_rec_trk % NTRK, i = om_rec_step % NSEQ;
+        if (notes_put(t, i, om_rec_ev, om_rec_n))
+            proj.seq_mel[t][i] = 0;
+        else
+            say("MELODY", "NO ROOM");
+        om_rec_ack = n;
+        mark_dirty();
+    }
+    if (ui.rec_was == 2) {                      /* (asked: until the render has started it) */
+        if (om_rec)
+            ui.rec_was = 1;
+        return;
+    }
+    if (ui.rec_was && !om_rec)
+        say("MELODY REC", "DONE");
+    ui.rec_was = om_rec != 0;
 }
 
 /* REC held and one of the first eight chord buttons: that track. It plays when the one playing comes round */
@@ -643,8 +761,11 @@ static void button(int b)
         mark_dirty();
         break;
     case B_OCTDN: case B_OCTUP:
-        if (ui.view == V_SEQ) {                  /* the sequence's page: the step's melody */
-            seq_melody(b == B_OCTDN ? 0 : 1);
+        if (ui.view == V_SEQ || (b == B_OCTDN && om_rec)) {   /* the sequence's page: the step's melody */
+            if (b == B_OCTDN && om_rec)
+                seq_record(0);
+            else
+                seq_melody(b == B_OCTDN ? 0 : 1);
             break;
         }
         knob_set(P_OCTAVE, proj.par[P_OCTAVE] + (b == B_OCTUP ? 1 : -1));
@@ -775,6 +896,8 @@ static void input(void)
             ui.btn_used &= ~m;
             if (i == B_OCTUP)
                 ui.octup_t = plat_ms();
+            if (i == B_OCTDN)
+                ui.octdn_t = plat_ms();
             if (i == B_PLAY)                   /* transport on the press */
                 button((int)i);
         } else if (!(ui.btn_used & m) && i != B_PLAY && i != B_ENV && i != B_LFO) {
@@ -798,10 +921,16 @@ static void input(void)
         ui.btn_used |= 1u << B_OCTUP;
         seq_melody(2);
     }
+    if (ui.view == V_SEQ && (btn >> B_OCTDN & 1u) && !(ui.btn_used >> B_OCTDN & 1u) && !om_rec &&
+        plat_ms() - ui.octdn_t >= 700u) {        /* OCT- held there: the step's melody recorded */
+        ui.btn_used |= 1u << B_OCTDN;
+        seq_record(1);
+    }
     if (btn || keys || ch)
         ui.act_t = plat_ms();
     midi_in();
     seq_follow();
+    rec_follow();
     if ((e = plat_enc(EN_SELECT)) != 0)
         turn(EN_SELECT, P_TEMPO, e);
     if ((e = plat_enc(EN_ALGO)) != 0)
@@ -856,7 +985,10 @@ static void draw_header(void)
     uint32_t h = hash(hash(hash(2166136261u, ui.view | proj.dark << 8), om_playing | ui.armed << 1 | proj.hold << 2 | proj.sync << 3 |
                                                        ui.dirty << 4 | (uint32_t)msg << 5 | proj.seq_on << 6 | proj.seq_trk << 8 |
                                                        om_seq_trk << 12),
-                      (uint32_t)proj.par[P_RHYTHM] << 8 | (uint32_t)proj.par[P_TEMPO] | (uint32_t)om_ext << 20);
+                      (uint32_t)proj.par[P_RHYTHM] << 8 | (uint32_t)proj.par[P_TEMPO] | (uint32_t)om_ext << 20 |
+                          (uint32_t)om_rec << 21);
+    if (om_rec)
+        h = hash(h, om_rec_pos | (uint32_t)om_rec_len << 8 | (uint32_t)om_rec_beat << 16);
     if (msg)
         h = hash(hash(h, (uint32_t)ui.msg[0][0] << 8 | ui.msg[0][1]), ui.msg_until);
     if (om_playing)
@@ -883,8 +1015,10 @@ static void draw_header(void)
             }
             x -= text_w(&FONT_S, t);
             cv_text(x, 6, &FONT_S, t, om_playing ? K_TEXT : K_DIM);
-            x -= 8 + text_w(&FONT_S, om_rhythm(proj.par[P_RHYTHM])->name);
-            cv_text(x, 6, &FONT_S, om_rhythm(proj.par[P_RHYTHM])->name, om_playing ? K_RHY : K_DIM);
+            if (!om_rec) {                        /* (recording: its tags in the room) */
+                x -= 8 + text_w(&FONT_S, om_rhythm(proj.par[P_RHYTHM])->name);
+                cv_text(x, 6, &FONT_S, om_rhythm(proj.par[P_RHYTHM])->name, om_playing ? K_RHY : K_DIM);
+            }
             x -= 16;
             if (om_playing) {                     /* a beat light */
                 int on = (om_step & 3u) < 2u;
@@ -931,8 +1065,31 @@ static void draw_header(void)
             cv_text(x + 5, 7, &FONT_XS, n, proj.seq_on ? K_HARP : K_DIM);
             x += w + 4;
         }
+        if (om_rec) {                             /* recording a step's melody: REC, or the count-in */
+            char n[8] = "REC";                   /* (layering: REC+) */
+            if (proj.mel_layer)
+                n[3] = '+', n[4] = 0;
+            int32_t w;
+            if (om_rec == 1) {                    /* the count-in: the beats it has left */
+                int b = om_rec_beat ? om_rec_beat : 4, left = om_rec_len ? (om_rec_len - om_rec_pos + b) / b : 0;
+                memcpy(n, "COUNT ", 6);
+                n[6] = (char)('0' + (left < 1 ? 1 : left > 9 ? 9 : left));
+                n[7] = 0;
+            }
+            w = text_w(&FONT_XS, n) + 10;
+            cv_round(x, 6, w, 16, 6, K_RHY);
+            cv_text(x + 5, 7, &FONT_XS, n, K_WHITE);
+            x += w + 4;
+        }
         if (ui.dirty)
             cv_round(x, 12, 5, 5, 2, K_DIM);
+    }
+    if (om_rec && om_rec_len) {                   /* recording: how far into the bar (count-in) or the time round, */
+        int32_t x0 = 8, w = 224, f = w * (om_rec_pos > om_rec_len ? om_rec_len : om_rec_pos) / om_rec_len, b;
+        cv_rect(x0, 24, w, 3, om_rec == 1 ? K_LINE : K_RHY_T);
+        cv_rect(x0, 24, f, 3, om_rec == 1 ? K_DIM : K_RHY);
+        for (b = om_rec_beat; om_rec_beat && b < om_rec_len; b += om_rec_beat)   /* a gap at each beat */
+            cv_rect(x0 + w * b / om_rec_len, 24, 1, 3, K_BG);
     }
     cv_blit(0, 0);
 }
@@ -1012,7 +1169,9 @@ static void draw_seq(int32_t y0)
         char t[12];
         int32_t x = 8 + (k % 8) * 28, y = y0 + (k / 8) * 32;
         int in = (i = i0 + k) < len, cur = in && seq_plays() && om_seq_trk == proj.seq_trk && om_seq_at == i;
-        if (ui.seq_sel == i)
+        if (om_rec_step_ui() == i)              /* the step recording: framed in the rhythm's colour */
+            cv_round(x - 2, y - 2, 31, 34, 7, K_RHY);
+        else if (ui.seq_sel == i)
             cv_round(x - 1, y - 1, 29, 32, 6, K_TEXT);
         cv_round(x, y, 27, 30, 5, cur ? K_CHORD : in ? K_CHORD_T : K_PANEL);
         if (!in)
@@ -1022,7 +1181,14 @@ static void draw_seq(int32_t y0)
         itoa_u(SQ_BEATS(i), t);
         cv_text(x + 24 - text_w(&FONT_XS, t), y + 2, &FONT_XS, t, cur ? K_WHITE : K_DIM);
         inv_dots(x + 13, y + 27, (int)SQ_INV(i), cur ? K_WHITE : K_CHORD);
-        if (SQ_MEL[i]) {                          /* a melody: a note, bottom left */
+        if (SQ_NOTES(i)) {                        /* the player's own melody: two notes, beamed */
+            uint16_t c = cur ? K_WHITE : K_RHY;
+            cv_round(x + 2, y + 24, 4, 4, 2, c);
+            cv_round(x + 7, y + 23, 4, 4, 2, c);
+            cv_rect(x + 5, y + 19, 1, 7, c);
+            cv_rect(x + 10, y + 18, 1, 7, c);
+            cv_rect(x + 5, y + 18, 6, 2, c);
+        } else if (SQ_MEL[i]) {                   /* a melody: a note, bottom left */
             uint16_t c = cur ? K_WHITE : K_HARP;
             cv_round(x + 3, y + 24, 4, 4, 2, c);
             cv_rect(x + 6, y + 19, 1, 7, c);
@@ -1065,7 +1231,8 @@ static void draw_main(void)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM] | ui.rhy_n << 8);
     if (ui.view == V_SEQ) {
         for (s = 0; s < NSEQ; s++)
-            h = hash(h, SQ[s][0] | SQ[s][1] << 8 | (uint32_t)(SQ_MEL[s] != 0) << 16);
+            h = hash(h, SQ[s][0] | SQ[s][1] << 8 | (uint32_t)(SQ_MEL[s] != 0) << 16 | (uint32_t)(SQ_NOTES(s) != 0) << 17);
+        h = hash(h, om_rec | (uint32_t)(om_rec_step_ui() & 255) << 8);
         h = hash(h, ui.seq_sel | (seq_plays() ? om_seq_at : 255u) << 8 | proj.seq_trk << 16 | om_seq_trk << 20 |
                         (uint32_t)seq_half() << 24);
     }
@@ -1205,7 +1372,7 @@ static void leds(void)
         b |= (om_step & 3u) < 2u ? 1u << B_PLAY : 0u;
     else if (ui.armed && (ui.frame / 8u) & 1u)
         b |= 1u << B_PLAY;
-    if (proj.seq_on)
+    if (om_rec ? (ui.frame / 8u) & 1u : proj.seq_on)   /* recording a melody: REC blinks */
         b |= 1u << B_REC;
     if (proj.hold)
         b |= 1u << B_ARP;
