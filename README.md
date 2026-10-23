@@ -69,6 +69,16 @@ For the stage: a web page (`web/omni_switch.html`, `switch/` on the site) keeps 
 
 A web page (`web/omni_editor.html`, on the site next to the installer) shows the eight chord sets and changes them on the FM-1 over USB, in Chrome or Edge; it saves and loads them as a file. Its second tab is for rhythms of your own: eight places beside the eleven rhythms Jambox FM-1 comes with, each up to 32 sixteenth-note steps of the five drums, the bass and the chord, drawn on a grid. A rhythm that comes with it can be copied to a place and changed there. A change plays at once, so the rhythm can be made by ear while it runs. ALGORITHM reaches your rhythms after Reggae, passing over the empty places. Its third tab gives the FM-1 a DX7 bank: a `.syx` file of 32 sounds, which are then voices for the strings (Harp) and for the chord (Chord) on Setup 2, after the Omnichord's own. They are played as a DX7 has them, six operators in its 32 algorithms with their envelopes, scaling, detune, feedback, pitch envelope and LFO (vibrato, tremolo); not its touch, and a note is not let go: a string dies away as Sustain has it, and the chord has its own envelope. With one of them no more than nine strings sound at once (the one plucked longest ago gives way), as many notes as the FM-1's own firmware plays. The bank stays on the FM-1 until another is loaded. It talks SysEx ([web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md)), and works with the browser emulator too.
 
+The drums on channel 10:
+
+| Sound | Note |
+|---|---|
+| Bass drum | 36 |
+| Snare | 38 |
+| Closed hat | 42 |
+| Ride | 51 |
+| Claves | 75 |
+
 ## Building and testing
 
 The toolchain is the same as X0X's (see [BUILDING.md](BUILDING.md)):
